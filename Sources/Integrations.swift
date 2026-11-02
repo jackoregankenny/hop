@@ -235,8 +235,10 @@ enum Volume {
 
 enum Paste {
     /// Copies, then sends ⌘V to the app that was frontmost (the panel never takes focus from it).
-    static func paste(_ s: String, _ clipboard: Clipboard) {
-        clipboard.copy(s)
+    static func paste(_ s: String, _ clipboard: Clipboard) { paste(.text(s), clipboard) }
+
+    static func paste(_ clip: Clipboard.Clip, _ clipboard: Clipboard) {
+        clipboard.copy(clip)
         guard AXIsProcessTrusted() else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
             let src = CGEventSource(stateID: .combinedSessionState)

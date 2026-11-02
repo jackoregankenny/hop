@@ -63,7 +63,7 @@ get a new identity on every rebuild, so macOS asks again after rebuilding.
 | `time in tokyo`, `sf time`, `1700000000` | world clock, unix timestamps |
 | `define serendipity` | the built-in macOS dictionary, offline |
 | `:fire` | emoji by name, ↵ pastes |
-| `clip`, `clip foo` | clipboard history (memory only, skips password-manager copies), ↵ pastes |
+| `clip`, `clip foo` | clipboard history: text and images, including what dictation apps like Wispr Flow paste (memory only, skips password-manager copies), ↵ pastes |
 | `quit slack`, `kill node` | quit or force quit running apps |
 | `battery`, `vol 30`, `mute`, `keep awake`, `lock` | system controls |
 | your Shortcuts by name | runs them through the Shortcuts app |
@@ -77,8 +77,9 @@ Keys: ↑↓ move, ↵ run, ⌘↵ alternate (reveal, copy, paste), ⌘1–9 run
 Real names beat keywords, and Hop's own commands (Settings, Edit Config, Quit…) rank below
 your apps and System Settings, so `settings` opens macOS settings, not Hop's.
 
-On top of that it learns, lightly: everything you open gets a score that halves every week, so
-what you use now rises and what you stopped using fades. It also remembers what you picked for
+On top of that it learns: everything you open (apps, commands, settings, files, bookmarks) gets a
+score that halves every week, so what you use often rises above a closer-matching name you never
+open, and what you stopped using fades. It also remembers what you picked for
 each query (`s` → Slack); a new choice takes over after a pick or two. All of it is a few
 numbers in Hop's preferences, nothing leaves the Mac.
 

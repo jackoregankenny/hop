@@ -3,7 +3,7 @@ import CryptoKit
 import ServiceManagement
 
 struct Item {
-    enum Icon { case file(String), symbol(String), text(String) }
+    enum Icon { case file(String), symbol(String), text(String), image(NSImage) }
     var id: String
     var title: String
     var subtitle = ""
@@ -53,6 +53,7 @@ enum Icons {
                 }
             }
             return nil
+        case .image(let img): return img   // already a small thumbnail
         case .symbol(let name):
             if let img = memory.object(forKey: ("s:" + name) as NSString) { return img }
             let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
@@ -221,13 +222,30 @@ final class Apps {
 }
 
 final class Clipboard {
-    private(set) var items: [String] = []      // in memory only, never written to disk
+    /// Text, or an image kept as the bytes that were copied plus a small thumbnail for its row.
+    enum Clip: Equatable {
+        case text(String)
+        case image(Data, NSPasteboard.PasteboardType, thumb: NSImage, size: CGSize)
+        static func == (a: Clip, b: Clip) -> Bool {
+            switch (a, b) {
+            case let (.text(x), .text(y)): return x == y
+            case let (.image(x, _, _, _), .image(y, _, _, _)): return x == y
+            default: return false
+            }
+        }
+    }
+
+    private(set) var items: [Clip] = []      // in memory only, never written to disk
     private var change = NSPasteboard.general.changeCount
     private var timer: Timer?
+    private var lastAdded = Date.distantPast
+    private var lastTransient = Date.distantPast
+    /// Passwords stay out. Transient text is kept: dictation apps (Wispr Flow, Granola…) mark what
+    /// they paste that way, and it is exactly what you want back later.
     private static let skip: [NSPasteboard.PasteboardType] = [
-        .init("org.nspasteboard.ConcealedType"), .init("org.nspasteboard.TransientType"),
-        .init("com.agilebits.onepassword"),
+        .init("org.nspasteboard.ConcealedType"), .init("com.agilebits.onepassword"),
     ]
+    private static let maxImages = 12, maxImageBytes = 30_000_000
 
     /// Off means no polling at all and nothing remembered.
     var enabled = false {
@@ -238,8 +256,10 @@ final class Clipboard {
             items = []
             guard enabled else { return }
             change = NSPasteboard.general.changeCount
-            timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in self?.poll() }
-            timer?.tolerance = 0.4
+            // Fast enough to catch dictation apps, which paste and then put your old clipboard back
+            // within a fraction of a second. A changeCount read is a cheap check, so this costs next to nothing.
+            timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.poll() }
+            timer?.tolerance = 0.1
         }
     }
 
@@ -247,17 +267,52 @@ final class Clipboard {
         let pb = NSPasteboard.general
         guard pb.changeCount != change else { return }
         change = pb.changeCount
-        if let types = pb.types, types.contains(where: Clipboard.skip.contains) { return }
-        guard let s = pb.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        items.removeAll { $0 == s }
-        items.insert(s, at: 0)
+        let types = pb.types ?? []
+        if types.contains(where: Clipboard.skip.contains) { return }
+        let transient = types.contains(.init("org.nspasteboard.TransientType"))
+        if let s = pb.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            add(.text(s), transient: transient)
+        } else if let type = [NSPasteboard.PasteboardType.png, .tiff].first(where: types.contains),
+                  let data = pb.data(forType: type), data.count <= Clipboard.maxImageBytes, let clip = Clipboard.image(data, type) {
+            add(clip)
+        }
+    }
+
+    func add(_ clip: Clip, transient: Bool = false, now: Date = Date()) {
+        // A dictation app putting back what was on the clipboard before: the dictated text stays on top.
+        if items.count > 1, items[1] == clip, now.timeIntervalSince(lastAdded) < 3 { return }
+        let restore = !transient && now.timeIntervalSince(lastTransient) < 1.5
+        items.removeAll { $0 == clip }
+        items.insert(clip, at: restore && !items.isEmpty ? 1 : 0)
+        lastTransient = transient ? now : .distantPast   // only the very next change counts as the restore
+        lastAdded = now
+        var images = 0
+        items = items.filter { if case .image = $0 { images += 1; return images <= Clipboard.maxImages }; return true }
         if items.count > 100 { items.removeLast() }
     }
 
-    func copy(_ s: String) {
+    /// A thumbnail decoded at row size (fast, and the full image is never drawn).
+    static func image(_ data: Data, _ type: NSPasteboard.PasteboardType) -> Clip? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int,
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                                                    kCGImageSourceThumbnailMaxPixelSize: 72,
+                                                                    kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary)
+        else { return nil }
+        return .image(data, type, thumb: NSImage(cgImage: cg, size: NSSize(width: cg.width / 2, height: cg.height / 2)),
+                      size: CGSize(width: w, height: h))
+    }
+
+    func copy(_ s: String) { copy(.text(s)) }
+
+    func copy(_ clip: Clip) {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(s, forType: .string)
+        switch clip {
+        case .text(let s): pb.setString(s, forType: .string)
+        case let .image(data, type, _, _): pb.setData(data, forType: type)
+        }
     }
 }
 
@@ -343,6 +398,9 @@ final class Files {
 ///   takes a pick or two, not weeks.
 enum Usage {
     static let halfLife: Double = 7 * 86_400
+    /// Points per doubling of recent use: 1 use ≈ 80, 3 ≈ 160, 10 ≈ 280, 30 ≈ 400. Enough for something
+    /// you open all the time to beat a slightly better name match (a word start is 140 below a prefix).
+    static let weight = 80.0
 
     private static var frecency: [String: [Double]] = {   // id -> [score, last opened]
         if let f = UserDefaults.standard.dictionary(forKey: "frecency") as? [String: [Double]] { return f }
@@ -366,7 +424,7 @@ enum Usage {
     static func bonus(_ id: String, query: String, now: Double = Date().timeIntervalSince1970,
                       picks: [String: [String: Double]] = picks, frecency: [String: [Double]] = frecency) -> Double {
         var b = 0.0
-        if let f = frecency[id] { b += 45 * log2(1 + decayed(f[0], since: f[1], now: now)) }
+        if let f = frecency[id] { b += weight * log2(1 + decayed(f[0], since: f[1], now: now)) }
         let q = query.lowercased()
         for n in stride(from: q.count, through: 1, by: -1) {
             guard let m = picks[String(q.prefix(n))], let c = m[id] else { continue }
@@ -389,7 +447,7 @@ enum Usage {
         let f = frecency
         return { id in
             var b = 0.0
-            if let e = f[id] { b += 45 * log2(1 + decayed(e[0], since: e[1], now: now)) }
+            if let e = f[id] { b += weight * log2(1 + decayed(e[0], since: e[1], now: now)) }
             if let h = history.first(where: { $0.picks[id] != nil }) { b += 400 * (h.picks[id]! / h.total) * h.weight }
             return b
         }

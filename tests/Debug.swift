@@ -46,6 +46,8 @@ enum Debug {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { launcher.show(query: q, focus: focus) }
         }
         guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else { return }
+        let q = args.firstIndex(of: "--query").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? ""
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.3) { launcher.show(query: q, focus: false) }   // anything that arrived meanwhile
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             // The content, not the backdrop: Liquid Glass is drawn by the window server and cannot be
             // captured offscreen, so this shows layout and text, not the material.

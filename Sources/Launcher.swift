@@ -586,7 +586,15 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             return (s + e.base + usage(e.item.id), e.item, e.minor)
         }.sorted { $0.0 > $1.0 }
         let top = scored.first?.0 ?? 0
-        let ranked = scored.filter { !$0.2 || $0.0 >= top - 250 }.map { ($0.0, $0.1) }
+        var ranked = scored.filter { !$0.2 || $0.0 >= top - 250 }.map { ($0.0, $0.1) }
+        // Files you have opened from Hop compete on usage like everything else; the rest stay below.
+        for path in filePaths {
+            let u = usage(path)
+            guard u > 0 else { continue }
+            let name = (path as NSString).lastPathComponent
+            ranked.append(((Match.score(q, name) ?? 400) - 60 + u, fileItem(path)))
+        }
+        ranked.sort { $0.0 > $1.0 }
 
         // One web row, placed by intent: first for questions or when nothing here matches well,
         // last when the query clearly means something on this Mac.
@@ -626,17 +634,19 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                             }), at: at + 1)
         }
 
-        for path in filePaths where !seen.contains(path) {
-            let url = URL(fileURLWithPath: path)
-            out.append(Item(id: path, title: url.lastPathComponent,
-                            subtitle: (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath,
-                            icon: .file(path), fill: url.lastPathComponent,
-                            action: { NSWorkspace.shared.open(url) },
-                            alt: { NSWorkspace.shared.activateFileViewerSelecting([url]) }))
-        }
+        for path in filePaths where !seen.contains(path) { out.append(fileItem(path)) }
 
         if !webFirst && bang(q) == nil { out.append(google) }
         return out
+    }
+
+    private func fileItem(_ path: String) -> Item {
+        let url = URL(fileURLWithPath: path)
+        return Item(id: path, title: url.lastPathComponent,
+                    subtitle: (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath,
+                    icon: .file(path), fill: url.lastPathComponent,
+                    action: { NSWorkspace.shared.open(url) },
+                    alt: { NSWorkspace.shared.activateFileViewerSelecting([url]) })
     }
 
     // MARK: the ranked pool: everything that is matched by name
@@ -801,19 +811,30 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             return [Item(id: "clip-off", title: "Clipboard History is off", subtitle: "Turn it on in Hop Settings",
                          icon: .symbol("doc.on.clipboard"), action: { [weak self] in self?.onOpenSettings?() })]
         }
-        let list = clipboard.items.filter { filter.isEmpty || $0.localizedCaseInsensitiveContains(filter) }
+        let list = clipboard.items.filter { c in
+            guard !filter.isEmpty else { return true }
+            if case .text(let s) = c { return s.localizedCaseInsensitiveContains(filter) }
+            return ["image", "picture", "screenshot", "png"].contains { $0.hasPrefix(filter.lowercased()) }
+        }
         if list.isEmpty {
-            return [Item(id: "clip-empty", title: "Clipboard history is empty", subtitle: "Copy some text and it shows up here",
+            return [Item(id: "clip-empty", title: "Clipboard history is empty", subtitle: "Copy some text or an image and it shows up here",
                          icon: .symbol("doc.on.clipboard"), action: {})]
         }
         let clipboard = self.clipboard
-        let pastes = AXIsProcessTrusted()
-        return list.prefix(50).enumerated().map { i, s in
-            let first = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s
-            return Item(id: "clip:\(i)", title: first.trimmingCharacters(in: .whitespaces),
-                        subtitle: "\(s.count) characters · " + (pastes ? "↵ paste · ⌘↵ copy" : "↵ copy"),
-                        icon: .symbol("doc.on.clipboard"),
-                        action: { Paste.paste(s, clipboard) }, alt: { clipboard.copy(s) })
+        let hint = AXIsProcessTrusted() ? "↵ paste · ⌘↵ copy" : "↵ copy"
+        return list.prefix(50).enumerated().map { i, c in
+            switch c {
+            case .text(let s):
+                let first = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s
+                return Item(id: "clip:\(i)", title: first.trimmingCharacters(in: .whitespaces),
+                            subtitle: "\(s.count) characters · " + hint, icon: .symbol("doc.on.clipboard"),
+                            action: { Paste.paste(c, clipboard) }, alt: { clipboard.copy(c) })
+            case let .image(data, _, thumb, size):
+                let kb = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
+                return Item(id: "clip:\(i)", title: "Image \(Int(size.width))×\(Int(size.height))",
+                            subtitle: "\(kb) · " + hint, icon: .image(thumb),
+                            action: { Paste.paste(c, clipboard) }, alt: { clipboard.copy(c) })
+            }
         }
     }
 

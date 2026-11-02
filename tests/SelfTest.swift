@@ -223,6 +223,35 @@ enum SelfTest {
         try? FileManager.default.removeItem(atPath: tmpHome)
         unsetenv("HOP_HOME")
 
+        // Clipboard: dictation apps paste, then restore the old clipboard; the dictated text stays on top
+        let cb = Clipboard()
+        let t0 = Date()
+        cb.add(.text("old"), now: t0)
+        cb.add(.text("dictated words"), now: t0.addingTimeInterval(60))
+        cb.add(.text("old"), now: t0.addingTimeInterval(60.4))
+        check(cb.items == [.text("dictated words"), .text("old")], "a quick restore does not bury dictated text")
+        cb.add(.text("old"), now: t0.addingTimeInterval(120))
+        check(cb.items.first == .text("old"), "copying it again later moves it up")
+        cb.add(.text("dictated again"), transient: true, now: t0.addingTimeInterval(200))
+        cb.add(.text("never seen before"), now: t0.addingTimeInterval(200.2))
+        check(cb.items.prefix(2) == [.text("dictated again"), .text("never seen before")], "a restore right after transient text goes under it")
+        cb.add(.text("a real copy"), now: t0.addingTimeInterval(200.5))
+        check(cb.items.first == .text("a real copy"), "only the first change after transient text counts as a restore")
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 640, pixelsHigh: 400, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let png = rep.representation(using: .png, properties: [:])!
+        if case let .image(_, type, thumb, size)? = Clipboard.image(png, .png) {
+            check(type == .png && size == CGSize(width: 640, height: 400) && max(thumb.size.width, thumb.size.height) <= 36,
+                  "images keep their bytes and get a small thumbnail")
+        } else { check(false, "image clip from png") }
+        for i in 0..<15 { if let c = Clipboard.image(png + Data([UInt8(i)]), .png) { cb.add(c) } }
+        check(cb.items.filter { if case .image = $0 { return true }; return false }.count == 12 && cb.items.contains(.text("old")),
+              "at most 12 images, text kept")
+
+        // Frequency beats a slightly better name: a word-start match used 10 times outranks an unused prefix match
+        let used = Usage.scorer(query: "x", now: 0, picks: [:], frecency: ["a": [10, 0]])
+        check(760 + used("a") > 900 + used("b"), "often-used item ranks above a better-matching unused one")
+
         // Hotkeys
         check(HotKeys.parse("ctrl+opt+left").map { "\($0.key) \($0.mods)" } == "\(kVK_LeftArrow) \(controlKey | optionKey)", "parse ctrl+opt+left")
         check(HotKeys.parse("cmd+bogus") == nil, "unknown key rejected")

@@ -21,7 +21,7 @@ enum Feature: String, CaseIterable {
     var detail: String {
         switch self {
         case .windowSnapping: return "Halves, thirds, quarters and their ⌃⌥ hotkeys"
-        case .clipboardHistory: return "Remembers copied text while Hop runs"
+        case .clipboardHistory: return "Remembers copied text and images while Hop runs (dictation included)"
         case .browserTabs: return "Searches open tabs in Safari, Orion and Chromium browsers"
         case .exchangeRates: return "Live ECB rates for things like 100 usd to eur (the only network call)"
         case .fileSearch: return "Spotlight file results"
