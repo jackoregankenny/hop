@@ -776,8 +776,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     private func appItem(name: String, path: String, running: Bool) -> Item {
-        let display = (path as NSString).abbreviatingWithTildeInPath
-        return Item(id: path, title: name, subtitle: running ? "Running · \(display)" : display, icon: .file(path), fill: name,
+        // Just the name: where an app lives is noise here (⌘↵ still shows it in Finder).
+        Item(id: path, title: name, subtitle: running ? "Running" : "", icon: .file(path), fill: name,
                     action: { NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: .init()) },
                     alt: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) })
     }
