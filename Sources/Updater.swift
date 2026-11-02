@@ -4,6 +4,7 @@ import CryptoKit
 /// Updates from GitHub Releases, no framework. The latest release of the repo named by the app's
 /// RFUpdateRepo Info.plist key carries "<App>.zip" and "<App>.zip.sha256". An update is installed
 /// only if the zip matches its checksum and holds this app's bundle id at the release's version.
+/// Checks run on their own; installing only ever happens when the user asks for it.
 /// Development builds (version "dev") never update, so `./build.sh` output is never replaced.
 final class Updater {
     enum State: Equatable { case idle, checking, upToDate, available(String), installing, installed(String), failed(String) }
@@ -13,14 +14,23 @@ final class Updater {
     let current: String
     private(set) var state: State = .idle { didSet { onChange?() } }
     var onChange: (() -> Void)?
-    /// Asked before restarting into a new version, e.g. "is the launcher closed?".
-    var canRelaunch: () -> Bool = { true }
+    /// The newest version seen, kept through later checks so a failed or slow check does not hide it.
+    private(set) var found: String?
     private var timer: Timer?
 
     init(app: String) {
         self.app = app
         repo = Bundle.main.object(forInfoDictionaryKey: "RFUpdateRepo") as? String ?? ""
         current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        #if TESTING
+        // HOP_FAKE_UPDATE=0.9.9 shows the update cues in dev builds, for screenshots.
+        if let v = ProcessInfo.processInfo.environment["HOP_FAKE_UPDATE"] { found = v; state = .available(v) }
+        #endif
+    }
+
+    /// A version that is ready to install when the user asks.
+    var pending: String? {
+        switch state { case .installing, .installed: return nil; default: return found }
     }
 
     var enabled: Bool { !repo.isEmpty && current != "dev" }
@@ -36,19 +46,19 @@ final class Updater {
         return false
     }
 
-    /// Checks shortly after launch, then every six hours, installing what it finds.
-    func startAutomatic() {
-        stopAutomatic()
+    /// Checks shortly after launch, then every six hours. Only looks: installing is the user's call.
+    func startChecking() {
+        stopChecking()
         guard enabled else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
             guard let self, self.timer != nil else { return }
-            self.check(install: true)
+            self.check(install: false)
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in self?.check(install: true) }
+        timer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in self?.check(install: false) }
         timer?.tolerance = 600
     }
 
-    func stopAutomatic() {
+    func stopChecking() {
         timer?.invalidate()
         timer = nil
     }
@@ -68,12 +78,18 @@ final class Updater {
             }
             DispatchQueue.main.async {
                 guard !tag.isEmpty else {
-                    self.state = .failed(error?.localizedDescription ?? "No release found")
+                    // A background check that fails keeps showing what it found; an install the user asked for says why not.
+                    let failed = State.failed(error?.localizedDescription ?? "No release found")
+                    self.state = install ? failed : self.found.map { .available($0) } ?? failed
                     done?(); return
                 }
                 guard Updater.isNewer(tag, than: self.current) else { self.state = .upToDate; done?(); return }
+                self.found = tag
                 self.state = .available(tag)
-                guard install, let zip = assets["\(self.app).zip"], let sum = assets["\(self.app).zip.sha256"] else { done?(); return }
+                guard install else { done?(); return }
+                guard let zip = assets["\(self.app).zip"], let sum = assets["\(self.app).zip.sha256"] else {
+                    self.state = .failed("The release has no \(self.app).zip"); done?(); return
+                }
                 self.install(tag, zip: zip, sum: sum, relaunch: relaunch, done: done)
             }
         }.resume()
@@ -109,19 +125,15 @@ final class Updater {
                 _ = try FileManager.default.replaceItemAt(Bundle.main.bundleURL, withItemAt: fresh)
                 try? FileManager.default.removeItem(at: tmp)
                 finish(.installed(version))
-                if relaunch { DispatchQueue.main.async { self.relaunchWhenIdle() } }
+                if relaunch { DispatchQueue.main.async { self.relaunch() } }
             } catch {
                 finish(.failed(error.localizedDescription))
             }
         }
     }
 
-    /// Restarts into the new version, waiting until the app is not in use.
-    private func relaunchWhenIdle() {
-        guard canRelaunch() else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.relaunchWhenIdle() }
-            return
-        }
+    /// Restarts into the new version right away: the user just asked for it.
+    private func relaunch() {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
@@ -138,7 +150,7 @@ final class Updater {
         case .upToDate: return "\(app) \(current) Is Up to Date"
         case .available(let v): return "Update to \(v)…"
         case .installing: return "Installing Update…"
-        case .installed(let v): return "\(v) Installed: Restarts When Idle"
+        case .installed(let v): return "\(v) Installed: Restarting…"
         case .failed: return "Update Check Failed: Try Again"
         }
     }

@@ -27,12 +27,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launcher.applyConfig()
 
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        status.button?.image = NSImage(systemSymbolName: "bolt.horizontal", accessibilityDescription: "Hop")
+        status.button?.image = icon
         let menu = NSMenu()
         menu.delegate = self
         status.menu = menu
-        updater.canRelaunch = { [weak self] in self?.launcher.panel.isVisible == false }
+        updater.onChange = { [weak self] in self?.showUpdate() }
+        launcher.onUpdate = { [weak self] in self?.updater.check(install: true) }
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: launcher.panel,
+                                               queue: .main) { [weak self] _ in self?.glint(atMostEvery: 300) }
         syncUpdater()
+        showUpdate()
         launcher.onOpenSettings = { [weak self] in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self?.status.button?.performClick(nil) }
         }
@@ -71,7 +75,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func open() { launcher.show() }
 
     func syncUpdater() {
-        if Feature.automaticUpdates.isOn { updater.startAutomatic() } else { updater.stopAutomatic() }
+        if Feature.updateChecks.isOn { updater.startChecking() } else { updater.stopChecking() }
+    }
+
+    // MARK: update cue: a dot on the menu-bar icon while an update waits, and a short glint now and then
+
+    private let icon = NSImage(systemSymbolName: "bolt.horizontal", accessibilityDescription: "Hop")
+    /// The icon with a small dot at its top-right. Still a template, so it follows the menu bar's colour; padded only
+    /// vertically, so the bolt neither moves nor shrinks when the dot appears.
+    private lazy var badged: NSImage? = icon.map { base in
+        let img = NSImage(size: NSSize(width: base.size.width, height: base.size.height + 4), flipped: false) { r in
+            base.draw(in: r.insetBy(dx: 0, dy: 2))
+            let d: CGFloat = 4.5, dot = NSRect(x: r.maxX - d, y: r.maxY - d, width: d, height: d)
+            NSGraphicsContext.current?.compositingOperation = .clear
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.25, dy: -1.25)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+        img.isTemplate = true
+        img.accessibilityDescription = "Hop, update available"
+        return img
+    }
+    private var announced: String?
+    private var lastGlint = Date.distantPast
+
+    private func showUpdate() {
+        let v = updater.pending
+        launcher.pendingUpdate = v
+        status.button?.image = v == nil ? icon : badged
+        if let v, v != announced { announced = v; glint(atMostEvery: 0) }
+    }
+
+    /// One light sweep across the icon, in the accent colour and masked to its shape. Core Animation runs it in
+    /// the render server and the layer removes itself when done, so nothing ticks between glints.
+    private func glint(atMostEvery seconds: TimeInterval) {
+        guard updater.pending != nil, Date().timeIntervalSince(lastGlint) >= seconds,
+              let b = status.button, let img = b.image else { return }
+        lastGlint = Date()
+        b.wantsLayer = true
+        guard let host = b.layer else { return }
+        let scale = b.window?.backingScaleFactor ?? 2
+        let mask = CALayer()
+        mask.frame = b.bounds
+        mask.contentsGravity = .center
+        mask.contentsScale = scale
+        mask.contents = img.layerContents(forContentsScale: scale)
+        let g = CAGradientLayer()
+        g.frame = b.bounds
+        g.mask = mask
+        let c = NSColor.controlAccentColor
+        g.colors = [c.withAlphaComponent(0).cgColor, c.cgColor, NSColor.white.cgColor, c.cgColor, c.withAlphaComponent(0).cgColor]
+        g.startPoint = CGPoint(x: 0, y: 0.3)
+        g.endPoint = CGPoint(x: 1, y: 0.7)
+        g.locations = [1, 1.1, 1.15, 1.2, 1.3]   // the end state: band past the right edge, nothing visible
+        let a = CABasicAnimation(keyPath: "locations")
+        a.fromValue = [-0.3, -0.2, -0.15, -0.1, 0]
+        a.duration = 1.2
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { g.removeFromSuperlayer() }
+        host.addSublayer(g)
+        g.add(a, forKey: "glint")
+        CATransaction.commit()
     }
 
     // MARK: settings menu, rebuilt each time it opens so it always shows the current state
@@ -123,7 +190,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         add(menu, "Reload Config") { [weak self] in self?.launcher.applyConfig() }
         menu.addItem(.separator())
-        add(menu, updater.menuTitle, enabled: updater.enabled) { [weak self] in self?.updater.check(install: true) }
+        // Installs only from here or ⌘U in the panel; otherwise this just checks.
+        add(menu, updater.menuTitle, enabled: updater.enabled) { [weak self] in
+            guard let u = self?.updater else { return }
+            u.check(install: u.pending != nil)
+        }
         add(menu, "Quit Hop") { NSApp.terminate(nil) }
     }
 

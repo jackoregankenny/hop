@@ -156,6 +156,9 @@ enum SelfTest {
         check(Updater.isNewer("v0.10.0", than: "0.9.2"), "versions compare numerically")
         check(!Updater.isNewer("0.2.0", than: "0.2.0") && !Updater.isNewer("0.1.9", than: "0.2"), "same or older is not newer")
         check(Updater.isNewer("1.0", than: "0.9.9.9"), "missing parts count as zero")
+        check(Feature.updateChecks.rawValue == "automaticUpdates", "update switch keeps its old defaults key")
+        check(Updater(app: "Hop").pending == nil || ProcessInfo.processInfo.environment["HOP_FAKE_UPDATE"] != nil,
+              "nothing pending before a check")
 
         // The fast scorer must rank exactly like bonus, prefix fallback included.
         // Literal data, so nothing is written to Hop's preferences.

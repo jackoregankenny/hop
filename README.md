@@ -18,9 +18,11 @@ unzip, and move it to `/Applications`. The build is not notarized, so clear the 
 xattr -dr com.apple.quarantine /Applications/Hop.app
 ```
 
-Hop then keeps itself up to date from GitHub Releases: it checks every few hours, installs only a
-download whose SHA-256 matches the release and whose bundle id and version are right, and restarts
-while closed. Turn it off with **Automatic Updates** in Hop's menu. macOS asks for Accessibility
+Hop checks GitHub Releases every few hours but never installs on its own. When there is a new
+version, the menu-bar icon gets a small dot and a brief glint, and the panel's footer says
+"Update to X available · ⌘U". Press ⌘U, or choose **Update to X…** in the menu, and Hop installs it,
+only if the download's SHA-256 matches the release and its bundle id and version are right, then
+restarts. Turn the checks off with **Check for Updates** in Hop's menu. macOS asks for Accessibility
 again after an update, because the builds are ad-hoc signed.
 
 App icons are drawn once into small PNGs in `~/Library/Caches/dev.hop.launcher/icons` (about
@@ -185,4 +187,5 @@ Typing `port 3000` runs it with `3000`; output shows in the panel, ↵ copies a 
 
 Flags: `--check` (validate config), `--menu` (print the settings menu), `--update-now`. Dev builds
 (`./build.sh`) also compile `tests/` and add `--selftest`, `--probe` (read-only report of what it can
-see) and, for screenshots, `--show --query "text" --snapshot out.png`; release builds leave them out.
+see) and, for screenshots, `--show --query "text" --snapshot out.png` (with `HOP_FAKE_UPDATE=0.9.9` to
+show the update cues); release builds leave them out.
