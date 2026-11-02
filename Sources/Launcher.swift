@@ -942,15 +942,11 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
 
     func tableViewSelectionDidChange(_ n: Notification) { updateFooter() }
 
-    /// Pre-loads the icons you are likely to see: running apps and your most used ones (at most 40).
-    /// Everything else loads on demand, still off the main thread; preloading every installed app
-    /// would cost about 9 MB for icons that rarely show.
+    /// Every app's icon goes to the disk cache once, in the background; rows then read them in
+    /// well under a millisecond. Memory only keeps icons recently shown.
     private func prewarmIcons() {
-        let usage = Usage.scorer(query: "")
-        let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleURL?.path })
-        let likely = apps.all.map(\.path).filter { running.contains($0) || usage($0) > 0 }
-            .sorted { usage($0) > usage($1) }.prefix(40)
-        Icons.prewarm(Array(likely) + ["/System/Applications/System Settings.app"])
+        Icons.cacheAll(apps.all.map(\.path) + ["/System/Applications/System Settings.app",
+                                                "/System/Applications/Shortcuts.app"])
     }
 
     /// An icon finished loading in the background: put it in its row if that row is still showing.

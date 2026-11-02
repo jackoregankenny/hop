@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import ServiceManagement
 
 struct Item {
@@ -13,73 +14,111 @@ struct Item {
     var alt: (() -> Void)? = nil        // ⌘↵
 }
 
-/// Icons, loaded off the main thread. NSWorkspace hands back lazy images whose real decoding
-/// happens at first draw (18 ms each when macOS's own cache is cold), so file icons are fetched
-/// *and drawn* into a small bitmap on a background queue; rows show them as they arrive.
+/// Icons, never decoded on the main thread. NSWorkspace hands back lazy images whose real
+/// decoding happens at first draw (18 ms each when macOS's own cache is cold), so:
+/// - at launch every app's icon is drawn once into a small PNG under ~/Library/Caches (keyed by
+///   path and modification date, so an updated app gets a fresh icon), at low priority;
+/// - a row asks for its icon and gets it from that PNG on a background queue in well under 1 ms;
+/// - memory holds only icons recently shown (bounded), not all of them.
 enum Icons {
-    private static var cache: [String: NSImage] = [:]          // main thread only
+    private static let memory: NSCache<NSString, NSImage> = { let c = NSCache<NSString, NSImage>(); c.countLimit = 150; return c }()
     private static var waiting: [String: [() -> Void]] = [:]   // main thread only
     private static var loading = Set<String>()                 // main thread only
     private static let urgent = DispatchQueue(label: "hop.icons", qos: .userInitiated)
-    private static let idle = DispatchQueue(label: "hop.icons.prewarm", qos: .utility)
+    private static let idle = DispatchQueue(label: "hop.icons.cache", qos: .utility)
     static let points: CGFloat = 36                            // the largest a row draws them
+
+    static var cacheDir: URL = {
+        let base = ProcessInfo.processInfo.environment["HOP_CACHE"].map(URL.init(fileURLWithPath:))
+            ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(Bundle.main.bundleIdentifier ?? "hop")
+        let dir = base.appendingPathComponent("icons")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
 
     /// The icon if it is ready; otherwise nil, with `ready` called on the main thread once it is.
     static func image(_ icon: Item.Icon, ready: (() -> Void)? = nil) -> NSImage? {
         switch icon {
         case .file(let path):
-            if let img = cache[path] { return img }
+            if let img = memory.object(forKey: path as NSString) { return img }
             if let ready { waiting[path, default: []].append(ready) }
-            load(path, on: urgent)
+            guard loading.insert(path).inserted else { return nil }
+            urgent.async {
+                let img = cached(path) ?? render(path)
+                DispatchQueue.main.async {
+                    memory.setObject(img, forKey: path as NSString)
+                    loading.remove(path)
+                    waiting.removeValue(forKey: path)?.forEach { $0() }
+                }
+            }
             return nil
         case .symbol(let name):
-            if let img = cache["s:" + name] { return img }
+            if let img = memory.object(forKey: ("s:" + name) as NSString) { return img }
             let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
-            cache["s:" + name] = img
+            if let img { memory.setObject(img, forKey: ("s:" + name) as NSString) }
             return img
         case .text(let t):
-            if let img = cache["t:" + t] { return img }
+            if let img = memory.object(forKey: ("t:" + t) as NSString) { return img }
             let img = NSImage(size: NSSize(width: 28, height: 28), flipped: false) { r in
                 let s = NSAttributedString(string: t, attributes: [.font: NSFont.systemFont(ofSize: 22)])
                 let sz = s.size()
                 s.draw(at: NSPoint(x: (r.width - sz.width) / 2, y: (r.height - sz.height) / 2))
                 return true
             }
-            cache["t:" + t] = img
+            memory.setObject(img, forKey: ("t:" + t) as NSString)
             return img
         }
     }
 
-    /// Loads icons ahead of time at low priority, so they are ready before anyone types.
-    static func prewarm(_ paths: [String]) {
-        for p in paths where cache[p] == nil { load(p, on: idle) }
+    /// Makes sure every app has an icon on disk, in the background at low priority. Already
+    /// cached icons cost one stat each; nothing is kept in memory.
+    static func cacheAll(_ paths: [String], wait: Bool = false) {
+        let work = { for p in paths where !FileManager.default.fileExists(atPath: file(for: p).path) { _ = render(p) } }
+        if wait { idle.sync(execute: work) } else { idle.async(execute: work) }
     }
 
-    private static func load(_ path: String, on queue: DispatchQueue) {
-        guard loading.insert(path).inserted else { return }
-        queue.async {
-            let img = render(path)
-            DispatchQueue.main.async {
-                cache[path] = img
-                loading.remove(path)
-                waiting.removeValue(forKey: path)?.forEach { $0() }
-            }
-        }
+    /// Path plus modification date, so an app that is updated gets its new icon.
+    private static func file(for path: String) -> URL {
+        let mtime = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date)?
+            .map { $0.timeIntervalSince1970 } ?? 0
+        let digest = SHA256.hash(data: Data("\(path)|\(mtime)".utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        return cacheDir.appendingPathComponent(digest + ".png")
     }
 
-    /// Draws the icon once into a 2x bitmap, so later draws are a plain image copy.
-    private static func render(_ path: String) -> NSImage {
-        let icon = NSWorkspace.shared.icon(forFile: path)
+    /// Reads the PNG into the same premultiplied bitmap a fresh render produces. Loading it as-is
+    /// leaves a format AppKit converts on every draw, which costs ~0.2 ms per icon on the main thread.
+    private static func cached(_ path: String) -> NSImage? {
+        guard let src = CGImageSourceCreateWithURL(file(for: path) as CFURL, nil),
+              let png = CGImageSourceCreateImageAtIndex(src, 0, nil),
+              let cg = bitmap({ $0.draw(png, in: CGRect(x: 0, y: 0, width: $1, height: $1)) }) else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: points, height: points))
+    }
+
+    /// A 2x premultiplied sRGB bitmap the size of a row icon: the cheapest thing for AppKit to draw.
+    private static func bitmap(_ draw: (CGContext, Int) -> Void) -> CGImage? {
         let px = Int(points * 2)
         guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return icon }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
-        icon.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
-        NSGraphicsContext.restoreGraphicsState()
-        guard let cg = ctx.makeImage() else { return icon }
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        draw(ctx, px)
+        return ctx.makeImage()
+    }
+
+    /// Draws the icon once into a 2x bitmap and stores it as PNG; later draws are a plain image copy.
+    private static func render(_ path: String) -> NSImage {
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        guard let cg = bitmap({ ctx, px in
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+            icon.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
+            NSGraphicsContext.restoreGraphicsState()
+        }) else { return icon }
+        // Only app bundles go to disk: their icons are stable, while plain files come and go.
+        if path.hasSuffix(".app"), let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) {
+            try? png.write(to: file(for: path), options: .atomic)
+        }
         return NSImage(cgImage: cg, size: NSSize(width: points, height: points))
     }
 }

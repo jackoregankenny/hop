@@ -68,6 +68,12 @@ enum Debug {
         }
         print(String(format: "icons: %d apps · main thread to request %.2f ms · ready in background after %.0f ms · drawing them %.2f ms",
                      paths.count, ask, wall, draw))
+        let all = launcher.apps.all.map(\.path)
+        let cacheAll = ms { Icons.cacheAll(all, wait: true) }
+        let files = (try? FileManager.default.contentsOfDirectory(at: Icons.cacheDir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        let bytes = files.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        print(String(format: "disk cache: all %d apps cached in %.0f ms (background) · %d files, %.1f MB",
+                     all.count, cacheAll, files.count, Double(bytes) / 1_048_576))
         let opens = (0..<3).map { _ in ms { launcher.loadSources() } }
         print(String(format: "panel open (loadSources): first %.1f ms, then %.1f ms, %.1f ms", opens[0], opens[1], opens[2]))
         print(String(format: "  audio devices %.1f ms · scripts %.1f ms · running apps %.1f ms · frontmost %.1f ms · AX trusted %.1f ms",

@@ -23,6 +23,10 @@ download whose SHA-256 matches the release and whose bundle id and version are r
 while closed. Turn it off with **Automatic Updates** in Hop's menu. macOS asks for Accessibility
 again after an update, because the builds are ad-hoc signed.
 
+App icons are drawn once into small PNGs in `~/Library/Caches/dev.hop.launcher/icons` (about
+1 MB for 130 apps, refreshed when an app updates), so results never wait on icon loading. It's a
+cache: deleting it is safe.
+
 ## Build from source
 
 Needs only the Xcode command line tools.
