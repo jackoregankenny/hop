@@ -8,7 +8,6 @@ enum Debug {
         if args.contains("--selftest") { SelfTest.run() }
         guard args.contains("--probe") else { return }
         print("accessibility trusted:", AXIsProcessTrusted())
-        print("focused window:", WindowCore.focused() == nil ? "none" : NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")
         if let front = NSWorkspace.shared.frontmostApplication {
             print("menu items in \(front.localizedName ?? "?"):",
                   Menus.read(pid: front.processIdentifier, appName: front.localizedName ?? "").count)

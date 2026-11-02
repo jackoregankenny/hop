@@ -2,8 +2,6 @@
 # Builds build/Hop.app. No dependencies beyond the Xcode command line tools.
 #   ./build.sh                 dev build (includes the self-test and debug flags from tests/)
 #   ./build.sh test            dev build, then run the self-test
-#   ./build.sh snaptest        press Hop's snap hotkeys on a throwaway Finder window and check
-#                              where it lands (needs Accessibility; takes focus for a few seconds)
 #   ./build.sh dist 0.3.0      release build, signed and notarized, zipped with a checksum, in dist/
 #   ./build.sh release 0.3.0   dist, then tag v0.3.0 and publish the GitHub Release from this Mac
 #   ./build.sh loc [dir]       lines of Swift in Sources/ and tests/ (of dir, default this checkout),
@@ -45,14 +43,6 @@ case "$1" in
   test)
     build
     build/Hop.app/Contents/MacOS/Hop --selftest | tail -1 ;;
-  snaptest)
-    build
-    swiftc -O -o build/snaptest tests/snaptest.swift
-    CFG=$(mktemp -d)   # empty config, so only the default hotkeys apply
-    status=0
-    build/snaptest build/Hop.app/Contents/MacOS/Hop "$CFG" || status=$?
-    rmdir "$CFG"
-    exit $status ;;
   dist)
     [ -n "$2" ] || { echo "usage: ./build.sh dist <version>"; exit 1; }
     VERSION=$2

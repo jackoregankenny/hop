@@ -6,7 +6,7 @@ A ⌘Space launcher for macOS in plain Swift + AppKit: about 500 KB, no dependen
 It reaches into what macOS already exposes (Accessibility, CoreAudio, IOKit,
 Dictionary Services, Spotlight, Apple Events, the `shortcuts` CLI) instead of shipping its own.
 
-Looking for tiling? That's a separate app: [Tiles](https://github.com/jackoregankenny/tiles).
+Looking for window snapping or tiling? That's a separate app: [Tiles](https://github.com/jackoregankenny/tiles).
 
 Configured by one plain JSON file that applies the moment it's saved, and `Hop --check` validates
 it, so you or an agent can set it up by editing text. [AGENTS.md](AGENTS.md) is the reference.
@@ -38,7 +38,6 @@ Needs only the Xcode command line tools.
 ```sh
 ./build.sh          # builds build/Hop.app
 ./build.sh test     # self-test
-./build.sh snaptest # presses the real snap hotkeys on a throwaway Finder window and checks where it lands
 open build/Hop.app
 ./build.sh release 0.3.0   # test, sign with your Developer ID, notarize, tag and publish (from your Mac)
 ```
@@ -47,7 +46,7 @@ Source builds are version `dev` and never update themselves.
 
 
 ⌥Space opens it. ⌘Space works once Spotlight's shortcut is off (System Settings → Keyboard →
-Keyboard Shortcuts → Spotlight). Window actions, menu search, window switching, media keys and
+Keyboard Shortcuts → Spotlight). Menu search, window switching, media keys and
 paste need Accessibility: run **Grant Accessibility Access** from the launcher. Dev builds are
 ad-hoc signed and get a new identity on every rebuild, so macOS asks again for those; releases keep theirs.
 
@@ -58,7 +57,6 @@ ad-hoc signed and get a new identity on every rebuild, so macOS asks again for t
 | `vsc`, `saf`, `spotfy` | apps by prefix, initials, typos. Learns what you use (see Ranking) |
 | a window or tab title | switch to any open window (all apps), or any tab in Safari, Orion, Chrome, Arc, Brave, Edge |
 | a menu command, e.g. `export pdf` | runs that item from the frontmost app's menu bar |
-| `left half`, `top left quarter`, `center third`, `max`… | snap the focused window (also on global hotkeys, below) |
 | `wifi`, `bluetooth`, `displays`, `dock` | System Settings panes |
 | `speakers`, `airpods`, `microphone` | switch sound output and input |
 | `12*7+3`, `5 km to mi`, `100 usd to eur` | math, units, live ECB rates. ↵ copies, ⌘↵ pastes |
@@ -104,7 +102,6 @@ or let an agent do it.
 
 - **General**: the feature switches, Launch at Login, theme and appearance. Off means off: no
   hotkeys, timers, network or Apple Events, not just hidden results.
-  - **Window Snapping**: every window command and every hotkey bound to one, including your own
   - **Clipboard History**: stops the clipboard poller and forgets what it held
   - **Browser Tabs**, **Exchange Rates** (the only network call Hop makes), **File Search**, **Check for Updates**
 - **Hotkeys**: every shortcut; click one and press a new combination, pick the action from the list,
@@ -145,25 +142,6 @@ be bound to hotkeys like any other command.
 ]
 ```
 
-## Window snapping
-
-Works from the launcher or from global hotkeys with no setup, using Rectangle's layout so the
-muscle memory carries over. Switch it all off in Settings › General. Pressing Left or Right Half again cycles ½ → ⅔ → ⅓.
-
-| Keys | Action |
-|---|---|
-| ⌃⌥ ← → ↑ ↓ | left, right, top, bottom half |
-| ⌃⌥ U I J K | top left, top right, bottom left, bottom right quarter |
-| ⌃⌥ D F G | left, center, right third |
-| ⌃⌥ E T | left, right two thirds |
-| ⌃⌥↩ · ⌃⌥⇧↑ · ⌃⌥C | maximize · maximize height · center |
-| ⌃⌥= · ⌃⌥- | make larger · make smaller |
-| ⌃⌥⌫ | restore the window's previous frame |
-| ⌃⌥⌘ ← → | previous, next display |
-
-Launcher-only: Center Half, Almost Maximize, Move Left/Right/Up/Down (to the edge, keeping size).
-Bind any of them in the config.
-
 ## Config: `~/.config/hop/config.json`
 
 Settings edits this file for you; **Edit Hop Config** opens it directly (with an example the first time). Saved changes apply immediately, and
@@ -173,8 +151,7 @@ a default off. Full reference: [AGENTS.md](AGENTS.md).
 
 ```json
 {
-  "hotkeys": { "ctrl+opt+v": "Clipboard History", "ctrl+opt+shift+left": "Move Left", "cmd+space": "none" },
-  "snapGap": 0,
+  "hotkeys": { "ctrl+opt+v": "Clipboard History", "ctrl+opt+l": "Lock Screen", "cmd+space": "none" },
   "quicklinks": [ { "name": "npm", "key": "npm", "url": "https://www.npmjs.com/search?q={query}" } ]
 }
 ```

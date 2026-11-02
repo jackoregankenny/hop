@@ -3,14 +3,13 @@ import AppKit
 /// On/off switches in the menu bar menu. Everything defaults to on; turning something off stops it
 /// entirely (no timers, no hotkeys, no network, no Apple Events) rather than just hiding results.
 enum Feature: String, CaseIterable {
-    case windowSnapping, clipboardHistory, browserTabs, exchangeRates, fileSearch
+    case clipboardHistory, browserTabs, exchangeRates, fileSearch
     /// Keeps its old key, so a switch turned off before updates became opt-in stays off.
     case updateChecks = "automaticUpdates"
 
     /// Its name and one line on what it does, for Settings › General.
     var text: (title: String, detail: String) {
         switch self {
-        case .windowSnapping: return ("Window Snapping", "Halves, thirds, quarters and their ⌃⌥ hotkeys")
         case .clipboardHistory: return ("Clipboard History", "Remembers copied text and images while Hop runs (dictation included)")
         case .browserTabs: return ("Browser Tabs", "Searches open tabs in Safari, Orion and Chromium browsers")
         case .exchangeRates: return ("Exchange Rates", "Live ECB rates for things like 100 usd to eur (the only network call)")

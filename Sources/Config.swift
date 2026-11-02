@@ -5,17 +5,11 @@ struct Config {
     struct Quicklink { let name: String; let url: String; let key: String? }
 
     /// ⌘Space only fires once Spotlight's shortcut is turned off; ⌥Space always works.
-    static let defaultHotkeys = ["cmd+space": "show", "opt+space": "show"].merging(Snap.defaultHotkeys) { a, _ in a }
+    static let defaultHotkeys = ["cmd+space": "show", "opt+space": "show"]
     var hotkeys = Config.defaultHotkeys
     var quicklinks: [Quicklink] = []
-    var snapGap: CGFloat = 0
     var snippets: [Snippet] = []
     var theme = Theme()
-
-    /// The hotkeys to register: window actions drop out when Window Snapping is off.
-    static func active(_ hotkeys: [String: String], snapping: Bool) -> [String: String] {
-        snapping ? hotkeys : hotkeys.filter { !Snap.actionNames.contains($0.value) }
-    }
 
     static var dir: String {
         ProcessInfo.processInfo.environment["HOP_HOME"] ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/hop")
@@ -31,7 +25,6 @@ struct Config {
             guard let name = q["name"], let url = q["url"] else { return nil }
             return Quicklink(name: name, url: url, key: q["key"]?.lowercased())
         }
-        if let g = obj["snapGap"] as? Double { c.snapGap = CGFloat(g) }
         c.snippets = Snippet.parse(obj["snippets"] as? [[String: String]])
         c.theme = Theme.from(obj["theme"])
         return c
@@ -72,11 +65,9 @@ struct Config {
     {
       "hotkeys": {
         "ctrl+opt+v": "Clipboard History",
-        "ctrl+opt+shift+left": "Move Left",
-        "ctrl+opt+shift+right": "Move Right",
+        "ctrl+opt+l": "Lock Screen",
         "cmd+space": "none"
       },
-      "snapGap": 0,
       "theme": { "preset": "default", "accent": "#7c8cff" },
       "snippets": [
         { "name": "Today's date", "keyword": "today", "text": "{date}" },
@@ -194,7 +185,9 @@ final class ConfigWatch {
 
 /// `hop --check`: validates config.json and says exactly what is wrong, for people and agents.
 enum ConfigCheck {
-    static let topKeys: Set<String> = ["hotkeys", "snapGap", "snippets", "quicklinks", "theme"]
+    static let topKeys: Set<String> = ["hotkeys", "snippets", "quicklinks", "theme"]
+    /// Keys Hop used to read: a warning, so an old config still passes.
+    static let retired = ["snapGap": "window snapping moved to Tiles (github.com/jackoregankenny/tiles); Hop ignores this"]
     static let themeKeys = Set(["preset", "appearance", "blur", "background", "accent", "font"]).union(Theme.limits.keys)
 
     /// `known`: lowercased names a hotkey may run (commands, apps, snippets, scripts, quicklinks).
@@ -215,7 +208,9 @@ enum ConfigCheck {
             options.min { Match.osa(k.lowercased(), $0.lowercased()) < Match.osa(k.lowercased(), $1.lowercased()) }
                 .map { Match.osa(k.lowercased(), $0.lowercased()) <= 3 ? " (did you mean \"\($0)\"?)" : "" } ?? ""
         }
-        for k in obj.keys.sorted() where !topKeys.contains(k) { errors.append("unknown key \"\(k)\"\(suggest(k, topKeys))") }
+        for k in obj.keys.sorted() where !topKeys.contains(k) {
+            if let why = retired[k] { warnings.append("\(k): \(why)") } else { errors.append("unknown key \"\(k)\"\(suggest(k, topKeys))") }
+        }
 
         var hotkeyCount = 0
         if let v = obj["hotkeys"] {
@@ -234,7 +229,6 @@ enum ConfigCheck {
                 }
             } else { errors.append("hotkeys must be an object of \"combo\": \"action\" strings") }
         }
-        if let v = obj["snapGap"], !(v is NSNumber) { errors.append("snapGap must be a number") }
         let snippets = obj["snippets"] as? [[String: Any]]
         if obj["snippets"] != nil && snippets == nil { errors.append("snippets must be an array of objects") }
         for (i, s) in (snippets ?? []).enumerated() {

@@ -83,7 +83,6 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     let clipboard = Clipboard()
     let files = Files()
 
-    let snapper = Snapper()
     let hotkeys = HotKeys()
     private(set) var config = Config()
     private var hotkeyLabels: [String: String] = [:]   // lowercased action -> "⌃⌥←"
@@ -197,7 +196,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     func actionNames() -> [String] {
         var seen: Set<String> = ["show"], out = ["show"]
         let fleeting = ["win:", "tab:", "menu:", "audio:"]
-        for n in Snap.actionNames.sorted() + pool().filter({ e in !fleeting.contains { e.item.id.hasPrefix($0) } }).compactMap({ $0.names.first })
+        for n in pool().filter({ e in !fleeting.contains { e.item.id.hasPrefix($0) } }).compactMap({ $0.names.first })
         where seen.insert(n.lowercased()).inserted { out.append(n) }
         return out
     }
@@ -208,7 +207,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     /// Lowercased names a hotkey can run, for `hop --check`.
     func knownActions() -> Set<String> {
         Set(pool().compactMap { $0.names.first?.lowercased() })
-            .union(Snap.actionNames.map { $0.lowercased() }).union(["show", "clipboard history"])
+            .union(["show", "clipboard history"])
     }
 
     private func applyTheme() {
@@ -330,13 +329,12 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         config = Config.load()
         sourcesChanged()
         if config.theme != Launcher.theme { Launcher.theme = config.theme; applyTheme() }
-        snapper.gap = config.snapGap
         features = Feature.allCases.map(\.isOn)
         clipboard.enabled = Feature.clipboardHistory.isOn
         hotkeys.removeAll()
         hotkeyLabels = [:]
         activeHotkeys = []
-        for (combo, action) in Config.active(config.hotkeys, snapping: Feature.windowSnapping.isOn).sorted(by: { $0.key < $1.key }) {
+        for (combo, action) in config.hotkeys.sorted(by: { $0.key < $1.key }) {
             guard hotkeys.register(combo, { [weak self] in self?.perform(action) }) else { continue }
             hotkeyLabels[action.lowercased(), default: HotKeys.symbols(combo)] = HotKeys.symbols(combo)
             activeHotkeys.append((combo, action))
@@ -694,11 +692,6 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         for c in commands() {
             out.append(Entry(names: [c.title] + c.keywords, base: Launcher.housekeeping.contains(c.title) ? -90 : -20, item: c.item))
         }
-        for c in Feature.windowSnapping.isOn ? snapper.commands() : [] {
-            out.append(Entry(names: [c.title] + c.keywords, base: -25,
-                             item: Item(id: "wm:\(c.title)", title: c.title, subtitle: label("Window", c.title),
-                                        icon: .symbol(c.symbol), action: c.run)))
-        }
         for p in SettingsPanes.all {
             out.append(Entry(names: [p.name] + p.keywords, base: -15,
                              item: Item(id: "pane:\(p.id)", title: p.name, subtitle: "System Settings",
@@ -932,7 +925,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         ]
         if !AXIsProcessTrusted() {
             list.append(cmd("Grant Accessibility Access", ["permissions", "windows", "menus", "paste"], "hand.raised",
-                            "Needed for window management, menu search, window switching and paste") {
+                            "Needed for menu search, window switching and paste") {
                 AX.ensureTrusted()
                 SettingsPanes.openAccessibilityPrivacy()
             })

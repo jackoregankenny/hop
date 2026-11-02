@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         launcher = Launcher()
         launcher.onConfig = { [weak self] in self?.syncUpdater() }
-        // Hotkeys come from ~/.config/hop/config.json on top of the defaults (⌥Space, ⌘Space, snapping).
+        // Hotkeys come from ~/.config/hop/config.json on top of the defaults (⌥Space, ⌘Space).
         // ⌘Space only fires once Spotlight's shortcut is turned off.
         launcher.applyConfig()
 

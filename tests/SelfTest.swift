@@ -51,41 +51,11 @@ enum SelfTest {
         check(Web.looksLikeURL("hello world") == nil, "not a url")
         check(Web.looksLikeURL("3.14") == nil, "number is not a url")
 
-        // Snapping, in Cocoa coordinates on a 1000x800 screen.
-        let a = CGRect(x: 0, y: 0, width: 1000, height: 800)
-        let win = CGRect(x: 100, y: 100, width: 400, height: 300)
-        let snap = { (n: String, c: CGRect) in Snap.target(n, screen: a, current: c, gap: 0)! }
-        check(snap("Left Half", win) == CGRect(x: 0, y: 0, width: 500, height: 800), "left half")
-        check(snap("Top Half", win) == CGRect(x: 0, y: 400, width: 1000, height: 400), "top half is the upper part")
-        check(snap("Top Left Quarter", win) == CGRect(x: 0, y: 400, width: 500, height: 400), "top left quarter")
-        check(snap("Bottom Right Quarter", win) == CGRect(x: 500, y: 0, width: 500, height: 400), "bottom right quarter")
-        check(abs(snap("Center Third", win).minX - 333.33) < 1 && abs(snap("Center Third", win).width - 333.33) < 1, "center third")
-        check(snap("Center Half", win) == CGRect(x: 250, y: 0, width: 500, height: 800), "center half")
-        check(snap("Center", win) == CGRect(x: 300, y: 250, width: 400, height: 300), "center keeps size")
-        check(snap("Maximize Height", win) == CGRect(x: 100, y: 0, width: 400, height: 800), "maximize height keeps x and width")
-        check(snap("Make Larger", win) == CGRect(x: 60, y: 60, width: 480, height: 380), "make larger")
-        check(snap("Make Larger", a) == a, "make larger stays on screen")
-        check(snap("Make Smaller", win) == CGRect(x: 140, y: 140, width: 320, height: 220), "make smaller")
-        check(snap("Make Smaller", CGRect(x: 0, y: 0, width: 300, height: 150)).size == CGSize(width: 300, height: 150),
-              "make smaller never grows a small window")
-        check(snap("Move Right", win) == CGRect(x: 600, y: 100, width: 400, height: 300), "move right keeps size")
-        check(snap("Move Up", win) == CGRect(x: 100, y: 500, width: 400, height: 300), "move up keeps size")
-        let gapped = Snap.target("Left Half", screen: a, current: win, gap: 10)!
-        check(gapped == CGRect(x: 10, y: 10, width: 485, height: 780), "gaps on region snaps")
-        check(Snap.target("Center", screen: a, current: win, gap: 10)!.size == win.size, "no gaps on size-keeping actions")
-        let half = snap("Left Half", win)
-        check(abs(snap("Left Half", half).width - 666.67) < 1, "left half again cycles to two thirds")
-        check(Snap.target("Nope", screen: a, current: win, gap: 0) == nil, "unknown action")
         for (combo, action) in Config.defaultHotkeys {
-            check(HotKeys.parse(combo) != nil, "default hotkey parses: \(combo)")
-            check(action == "show" || action == "Restore Window" || action.hasSuffix("Display")
-                  || Snap.all.contains { $0.name == action }, "default hotkey has an action: \(action)")
+            check(HotKeys.parse(combo) != nil && action == "show", "default hotkey opens Hop: \(combo)")
         }
-        let off = Config.active(Config.defaultHotkeys, snapping: false)
-        check(Set(off.values) == ["show"], "window snapping off leaves only the launcher hotkeys")
-        check(Config.active(["ctrl+opt+x": "Clipboard History", "ctrl+opt+y": "Left Half"], snapping: false) == ["ctrl+opt+x": "Clipboard History"],
-              "snapping off drops user-bound window hotkeys too")
-        check(Config.active(Config.defaultHotkeys, snapping: true).count == Config.defaultHotkeys.count, "snapping on keeps all")
+        check(ConfigCheck.run(text: #"{ "snapGap": 4 }"#, known: []).errors.isEmpty, "a retired key is only a warning")
+        check(ConfigCheck.run(text: Config.sample, known: ["clipboard history", "lock screen"]) .warnings.isEmpty, "the example config is clean")
 
         // Usage weighting
         let week = Usage.halfLife
@@ -186,7 +156,7 @@ enum SelfTest {
             + [["combo": "alt+ctrl+c", "action": "Maximize"], ["combo": "ctrl+opt+v", "action": "Clipboard History"], ["combo": "", "action": "x"]]
         check(SettingsWindow.hotkeyChanges(edited) == ["opt+space": "none", "alt+ctrl+c": "Maximize", "ctrl+opt+v": "Clipboard History"],
               "removed default -> none, rebound and new combos kept, incomplete rows dropped")
-        check(HotKeys.merged(Config.defaultHotkeys, SettingsWindow.hotkeyChanges(edited)).count == Config.defaultHotkeys.count,
+        check(HotKeys.merged(Config.defaultHotkeys, SettingsWindow.hotkeyChanges(edited)).count == edited.filter { $0["combo"] != "" }.count,
               "written changes merge back to the edited list")
         check(HotKeys.name(forKeyCode: kVK_LeftArrow) == "left" && HotKeys.name(forKeyCode: kVK_Return) == "return", "key code names")
 
@@ -207,11 +177,11 @@ enum SelfTest {
         let tmpHome = NSTemporaryDirectory() + "hop-selftest-\(getpid())"
         setenv("HOP_HOME", tmpHome, 1)
         try? FileManager.default.createDirectory(atPath: tmpHome, withIntermediateDirectories: true)
-        try? Data(#"{ "snapGap": 4, "theme": "paper" }"#.utf8).write(to: URL(fileURLWithPath: tmpHome + "/config.json"))
+        try? Data(#"{ "theme": "paper" }"#.utf8).write(to: URL(fileURLWithPath: tmpHome + "/config.json"))
         Config.update("quicklinks") { _ in [["name": "Docs", "url": "https://example.com/{query}", "key": "d"]] }
         Snippet.save("Hello\nthere")
         var cfg = Config.load()
-        check(cfg.snapGap == 4 && cfg.quicklinks.first?.key == "d" && cfg.snippets.first?.name == "Hello",
+        check(cfg.theme.font == "serif" && cfg.quicklinks.first?.key == "d" && cfg.snippets.first?.name == "Hello",
               "update keeps other keys and adds lists")
         Config.update("quicklinks") { _ in [[String: String]]() }
         cfg = Config.load()

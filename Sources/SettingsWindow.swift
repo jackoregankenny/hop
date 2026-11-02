@@ -17,7 +17,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
 
         let hotkeys = ListPane(columns: [.init(key: "combo", title: "Shortcut", width: 150, kind: .shortcut),
                                          .init(key: "action", title: "Action", width: 300, kind: .combo { [launcher] in launcher.actionNames() })],
-                               note: "Click a shortcut to record a new one. Window actions work while Window Snapping is on.")
+                               note: "Click a shortcut to record a new one.")
         hotkeys.load = { [launcher] in
             launcher.config.hotkeys.map { ["combo": $0.key, "action": $0.value] }.sorted { ($0["action"]!, $0["combo"]!) < ($1["action"]!, $1["combo"]!) }
         }
