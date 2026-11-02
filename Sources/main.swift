@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var launcher: Launcher!
     var status: NSStatusItem!
     let updater = Updater(app: "Hop")
+    lazy var settings = SettingsWindow(launcher: launcher) { [weak self] in self?.syncUpdater() }
 
     func applicationDidFinishLaunching(_ n: Notification) {
         launcher = Launcher()
@@ -37,9 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                queue: .main) { [weak self] _ in self?.glint(atMostEvery: 300) }
         syncUpdater()
         showUpdate()
-        launcher.onOpenSettings = { [weak self] in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self?.status.button?.performClick(nil) }
-        }
+        launcher.onOpenSettings = { [weak self] in self?.settings.present() }
 
         // --check validates config.json for people and agents: exit 0 when valid, 1 with errors.
         if CommandLine.arguments.contains("--check") {
@@ -53,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             exit(r.errors.isEmpty ? 0 : 1)
         }
 
-        // --menu prints the settings menu and quits (for checking it without clicking).
+        // --menu prints the menu-bar menu, feature switches and hotkeys, and quits (for checking without clicking).
         if CommandLine.arguments.contains("--menu") {
             menuNeedsUpdate(menu)
             func dump(_ m: NSMenu, _ indent: String) {
@@ -64,11 +63,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
             dump(menu, "")
+            print("\nFeatures (Settings › General):")
+            for f in Feature.allCases { print((f.isOn ? "  ✓ " : "    ") + f.title) }
+            print("    Launch at Login: \(System.launchAtLogin ? "on" : "off")")
+            print("\nHotkeys (\(launcher.activeHotkeys.count) registered):")
+            for (combo, action) in launcher.activeHotkeys.sorted(by: { $0.action < $1.action }) {
+                print("  \(HotKeys.symbols(combo))\t\(action == "show" ? "Open Hop" : action)")
+            }
             exit(0)
         }
 
         #if TESTING
-        Debug.launched(launcher)   // --show, --query, --snapshot: dev builds only
+        Debug.launched(launcher, settings: settings)   // --show, --query, --snapshot: dev builds only
         #endif
     }
 
@@ -150,26 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         actions = []
         let show = launcher.activeHotkeys.first { $0.action == "show" }.map { "  " + HotKeys.symbols($0.combo) } ?? ""
         add(menu, "Open Hop" + show) { [weak self] in self?.launcher.show() }
+        add(menu, "Settings…", key: ",") { [weak self] in self?.settings.present() }
         menu.addItem(.separator())
-
-        for f in Feature.allCases {
-            add(menu, f.title, on: f.isOn, tip: f.detail) { [weak self] in
-                f.isOn.toggle()
-                self?.launcher.applyConfig()   // re-registers hotkeys and starts/stops the clipboard
-                self?.syncUpdater()
-            }
-        }
-        add(menu, "Launch at Login", on: System.launchAtLogin) { System.launchAtLogin.toggle() }
-        menu.addItem(.separator())
-
-        let keys = NSMenu()
-        for (combo, action) in launcher.activeHotkeys.sorted(by: { $0.action < $1.action }) {
-            add(keys, "\(HotKeys.symbols(combo))\t\(action == "show" ? "Open Hop" : action)", enabled: false) {}
-        }
-        if launcher.activeHotkeys.isEmpty { add(keys, "No hotkeys", enabled: false) {} }
-        keys.addItem(.separator())
-        add(keys, "Edit Hotkeys…") { Config.edit() }
-        submenu(menu, "Hotkeys (\(launcher.activeHotkeys.count))", keys)
 
         let snips = NSMenu()
         for sn in launcher.config.snippets {
@@ -181,14 +169,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if launcher.config.snippets.isEmpty { add(snips, "No snippets yet", enabled: false) {} }
         snips.addItem(.separator())
         add(snips, "Save Clipboard as Snippet") { [weak self] in if Snippet.saveClipboard() { self?.launcher.applyConfig() } }
-        add(snips, "Edit Snippets…") { Config.edit() }
+        add(snips, "Edit Snippets…") { [weak self] in self?.settings.present(tab: 3) }
         submenu(menu, "Snippets (\(launcher.config.snippets.count))", snips)
-
-        add(menu, "Open Scripts Folder") {
-            try? FileManager.default.createDirectory(atPath: Config.scriptsDir, withIntermediateDirectories: true)
-            NSWorkspace.shared.open(URL(fileURLWithPath: Config.scriptsDir))
+        add(menu, "Save Current Page as Bookmark") { [weak self] in
+            if Tabs.saveFront() != nil { self?.launcher.applyConfig() } else { NSSound.beep() }
         }
-        add(menu, "Reload Config") { [weak self] in self?.launcher.applyConfig() }
         menu.addItem(.separator())
         // Installs only from here or ⌘U in the panel; otherwise this just checks.
         add(menu, updater.menuTitle, enabled: updater.enabled) { [weak self] in
@@ -198,9 +183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add(menu, "Quit Hop") { NSApp.terminate(nil) }
     }
 
-    private func add(_ menu: NSMenu, _ title: String, on: Bool = false, enabled: Bool = true, tip: String? = nil,
+    private func add(_ menu: NSMenu, _ title: String, on: Bool = false, enabled: Bool = true, tip: String? = nil, key: String = "",
                      _ run: @escaping () -> Void) {
-        let item = NSMenuItem(title: title, action: enabled ? #selector(menuAction(_:)) : nil, keyEquivalent: "")
+        let item = NSMenuItem(title: title, action: enabled ? #selector(menuAction(_:)) : nil, keyEquivalent: key)
         item.target = self
         item.tag = actions.count
         item.state = on ? .on : .off

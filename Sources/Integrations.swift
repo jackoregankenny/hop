@@ -342,6 +342,35 @@ enum Tabs {
         return out
     }
 
+    /// The page in the browser window closest to the front (any running browser, so it works from the
+    /// settings window too): title and URL of its active tab.
+    static func front() -> (title: String, url: String)? {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let browsers = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier.map { chromium.contains($0) || webkit.contains($0) } ?? false }
+        let pids = list.compactMap { ($0[kCGWindowLayer as String] as? Int) == 0 ? $0[kCGWindowOwnerPID as String] as? pid_t : nil }
+        guard let app = pids.lazy.compactMap({ pid in browsers.first { $0.processIdentifier == pid } }).first,
+              let id = app.bundleIdentifier else { return nil }
+        let src = webkit.contains(id)
+            ? "tell application id \"\(id)\" to tell current tab of front window to return (name as text) & (character id 9) & (URL as text)"
+            : "tell application id \"\(id)\" to tell active tab of front window to return (title as text) & (character id 9) & (URL as text)"
+        let f = System.osascript(src).trimmingCharacters(in: .newlines).split(separator: "\t", maxSplits: 1).map(String.init)
+        guard f.count == 2, f[1].hasPrefix("http") else { return nil }
+        return (f[0].isEmpty ? (URL(string: f[1])?.host ?? f[1]) : f[0], f[1])
+    }
+
+    /// Adds the front page to Hop's bookmarks (config.json "quicklinks"). Returns its title, or nil
+    /// when no browser window is open or it is already saved.
+    static func saveFront() -> String? {
+        guard let page = front() else { return nil }
+        var added = false
+        Config.update("quicklinks") { list in
+            var l = list as? [[String: String]] ?? []
+            if !l.contains(where: { $0["url"] == page.url }) { l.append(["name": page.title, "url": page.url]); added = true }
+            return l
+        }
+        return added ? page.title : nil
+    }
+
     static func focus(_ t: Tab) {
         guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == t.browser }),
               let id = app.bundleIdentifier else { return }

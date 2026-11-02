@@ -22,7 +22,7 @@ Hop checks GitHub Releases every few hours but never installs on its own. When t
 version, the menu-bar icon gets a small dot and a brief glint, and the panel's footer says
 "Update to X available · ⌘U". Press ⌘U, or choose **Update to X…** in the menu, and Hop installs it,
 only if the download's SHA-256 matches the release and its bundle id and version are right, then
-restarts. Turn the checks off with **Check for Updates** in Hop's menu. macOS asks for Accessibility
+restarts. Turn the checks off with **Check for Updates** in Settings. macOS asks for Accessibility
 again after an update, because the builds are ad-hoc signed.
 
 App icons are drawn once into small PNGs in `~/Library/Caches/dev.hop.launcher/icons` (about
@@ -67,7 +67,7 @@ get a new identity on every rebuild, so macOS asks again after rebuilding.
 | `quit slack`, `kill node` | quit or force quit running apps |
 | `battery`, `vol 30`, `mute`, `keep awake`, `lock` | system controls |
 | your Shortcuts by name | runs them through the Shortcuts app |
-| `yt`, `gh`, `x`, `wiki`, `maps`, `r` + query | site search; add your own as quicklinks |
+| `yt`, `gh`, `x`, `wiki`, `maps`, `r` + query | site search; add your own as bookmarks with `{query}` |
 | a question, or anything not on the Mac | one **Search Google** row, placed by intent (see Ranking) |
 
 Keys: ↑↓ move, ↵ run, ⌘↵ alternate (reveal, copy, paste), ⌘1–9 run a row, Tab completes, Esc clears then closes.
@@ -93,19 +93,25 @@ never get it), ranked by how recently, plus new files near the top of Desktop, D
 Downloads. Never-opened source code, JSON, logs, test fixtures, `node_modules`, build output,
 hidden folders and `~/Library` stay out.
 
-## Settings menu
+## Settings
 
-The ⚡ menu-bar icon is the settings menu. Each feature is a checkmark you can switch off, and off
-means off: no hotkeys, timers, network or Apple Events, not just hidden results.
+**Settings…** in the ⚡ menu-bar menu (or `hop settings` in the launcher) opens a small window
+that writes straight to config.json, so the file stays the one source of truth: edit there, here,
+or let an agent do it.
 
-- **Window Snapping**: every window command and every hotkey bound to one, including your own
-- **Clipboard History**: stops the clipboard poller and forgets what it held
-- **Browser Tabs**, **Exchange Rates** (the only network call Hop makes), **File Search**
-- **Launch at Login**
-- **Hotkeys**: everything currently registered, plus Edit
-- **Snippets**: paste one, **Save Clipboard as Snippet**, or Edit
+- **General**: the feature switches, Launch at Login, theme and appearance. Off means off: no
+  hotkeys, timers, network or Apple Events, not just hidden results.
+  - **Window Snapping**: every window command and every hotkey bound to one, including your own
+  - **Clipboard History**: stops the clipboard poller and forgets what it held
+  - **Browser Tabs**, **Exchange Rates** (the only network call Hop makes), **File Search**, **Check for Updates**
+- **Hotkeys**: every shortcut; click one and press a new combination, pick the action from the list,
+  + and − to add or remove. Only differences from the defaults are written.
+- **Bookmarks**: name, keyword and URL. A URL with `{query}` becomes a search (`npm react`).
+  **Add Current Page** saves the front tab of whichever browser window is nearest the front.
+- **Snippets**: name, keyword and the text itself, or **Add Clipboard**.
 
-Typing `settings` in the launcher opens the same menu.
+Saving pages also works from anywhere: **Save Current Page** in the launcher (`bookmark`) or
+**Save Current Page as Bookmark** in the menu. The menu also pastes snippets directly.
 
 ## Themes
 
@@ -139,7 +145,7 @@ be bound to hotkeys like any other command.
 ## Window snapping
 
 Works from the launcher or from global hotkeys with no setup, using Rectangle's layout so the
-muscle memory carries over. Switch it all off from the settings menu. Pressing Left or Right Half again cycles ½ → ⅔ → ⅓.
+muscle memory carries over. Switch it all off in Settings › General. Pressing Left or Right Half again cycles ½ → ⅔ → ⅓.
 
 | Keys | Action |
 |---|---|
@@ -157,7 +163,7 @@ Bind any of them in the config.
 
 ## Config: `~/.config/hop/config.json`
 
-Run **Edit Hop Config** to create an example. Saved changes apply immediately, and
+Settings edits this file for you; **Edit Hop Config** opens it directly (with an example the first time). Saved changes apply immediately, and
 `Hop --check` (the binary is in `Hop.app/Contents/MacOS/`) reports any mistakes with exit code 1.
 Your hotkeys are added on top of the defaults; any command title can be bound, and `"none"` turns
 a default off. Full reference: [AGENTS.md](AGENTS.md).
@@ -185,7 +191,7 @@ lsof -nP -iTCP:"$1" -sTCP:LISTEN
 
 Typing `port 3000` runs it with `3000`; output shows in the panel, ↵ copies a line.
 
-Flags: `--check` (validate config), `--menu` (print the settings menu), `--update-now`. Dev builds
+Flags: `--check` (validate config), `--menu` (print the menu, feature switches and hotkeys), `--update-now`. Dev builds
 (`./build.sh`) also compile `tests/` and add `--selftest`, `--probe` (read-only report of what it can
 see) and, for screenshots, `--show --query "text" --snapshot out.png` (with `HOP_FAKE_UPDATE=0.9.9` to
 show the update cues); release builds leave them out.

@@ -189,6 +189,19 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         DispatchQueue.global(qos: .utility).async { _ = Audio.devices() }   // warm CoreAudio before the first open
     }
 
+    /// Names a hotkey can run, for the settings window's Action list: commands, window actions, apps,
+    /// snippets, bookmarks, scripts and shortcuts (not windows, tabs or menu items, which come and go).
+    func actionNames() -> [String] {
+        var seen: Set<String> = ["show"], out = ["show"]
+        let fleeting = ["win:", "tab:", "menu:", "audio:"]
+        for n in Snap.actionNames.sorted() + pool().filter({ e in !fleeting.contains { e.item.id.hasPrefix($0) } }).compactMap({ $0.names.first })
+        where seen.insert(n.lowercased()).inserted { out.append(n) }
+        return out
+    }
+
+    /// Lets the settings window record a combo that is already a hotkey; applyConfig turns them back on.
+    func suspendHotkeys() { hotkeys.removeAll() }
+
     /// Lowercased names a hotkey can run, for `hop --check`.
     func knownActions() -> Set<String> {
         Set(pool().compactMap { $0.names.first?.lowercased() })
@@ -199,7 +212,12 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         let t = Launcher.theme
         panel.appearance = t.nsAppearance
         if !useGlass(t) {
-            if root.superview !== bg { root.removeFromSuperview(); root.frame = bg.bounds; bg.addSubview(root) }
+            if root.superview !== bg {
+                root.removeFromSuperview()
+                root.translatesAutoresizingMaskIntoConstraints = true   // the glass view turns this off; without it root stays 0×0
+                root.frame = bg.bounds
+                bg.addSubview(root)
+            }
             if panel.contentView !== bg { panel.contentView = bg }
             tint.isHidden = false
             if let m = t.material { bg.material = m; bg.state = .active } else { bg.state = .inactive }
@@ -700,7 +718,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             let hasQuery = l.url.contains("{query}")
             out.append(Entry(names: [l.name] + (l.key.map { [$0] } ?? []), base: -10, aliasWeight: 1,
                              item: Item(id: "link:\(l.name)", title: l.name,
-                                        subtitle: hasQuery ? "Quicklink · type \(l.key ?? l.name) <query>" : l.url,
+                                        subtitle: hasQuery ? "Bookmark · type \(l.key ?? l.name) <query>" : l.url,
                                         icon: .symbol("link"), fill: hasQuery ? "\(l.key ?? l.name) " : nil,
                                         action: { Web.open(l.url.replacingOccurrences(of: "{query}", with: "")) })))
         }
@@ -889,7 +907,13 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             folder("Desktop", .desktopDirectory),
             folder("Documents", .documentDirectory),
             folder("Home", .userDirectory),
-            cmd("Hop Settings", ["settings", "preferences", "turn off", "disable"], "switch.2", "Features, hotkeys, snippets") {
+            cmd("Save Current Page", ["bookmark", "add bookmark", "save page", "save tab"], "bookmark", "Adds the browser's front tab to your bookmarks") {
+                [weak self] in
+                guard let self else { return }
+                if let title = Tabs.saveFront() { self.applyConfig(); self.show(query: title) } else { NSSound.beep() }
+            },
+            cmd("Hop Settings", ["settings", "preferences", "turn off", "disable", "hotkeys", "bookmarks"], "switch.2",
+                "Features, hotkeys, bookmarks, snippets") {
                 [weak self] in self?.onOpenSettings?()
             },
             cmd("Edit Hop Config", ["hotkeys", "snippets", "config"], "gearshape", Config.path) { Config.edit() },
@@ -972,7 +996,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         }
         let table: [(String, String, String, String?)] = [
             ("menu-more", "Menu", "Show all", nil), ("cmd:", "Command", "Run", nil), ("pane:", "System Settings", "Open", nil), ("wm:", "Window", "Move", nil),
-            ("snippet:", "Snippet", "Paste", "Copy"), ("link:", "Quicklink", "Open", nil), ("script:", "Script", "Run", nil),
+            ("snippet:", "Snippet", "Paste", "Copy"), ("link:", "Bookmark", "Open", nil), ("script:", "Script", "Run", nil),
             ("shortcut:", "Shortcut", "Run", nil), ("audio:", "Sound", "Switch", nil),
             ("win:", "Window", "Switch to", nil), ("tab:", "Tab", "Switch to", "Copy URL"), ("menu:", "Menu", "Click", nil),
             ("answer", "Answer", "Copy", "Paste"), ("google", "Web", "Search", nil), ("bang:", "Web", "Search", nil),

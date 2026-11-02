@@ -52,6 +52,11 @@ final class HotKeys {
         "f1": kVK_F1, "f2": kVK_F2, "f3": kVK_F3, "f4": kVK_F4, "f5": kVK_F5, "f6": kVK_F6,
     ]
 
+    /// The config name for a key code, for recording shortcuts ("left", "a", "f1").
+    static func name(forKeyCode code: Int) -> String? {
+        keys.first { $0.value == code && $0.key != "enter" && $0.key != "backspace" }?.key
+    }
+
     static func parse(_ combo: String) -> (key: Int, mods: Int)? {
         var mods = 0, key: Int?
         for part in combo.lowercased().split(separator: "+").map({ $0.trimmingCharacters(in: .whitespaces) }) {

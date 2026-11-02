@@ -38,6 +38,19 @@ struct Config {
         return c
     }
 
+    /// Rewrites one top-level key of config.json and keeps the rest; nil or an empty list removes the key.
+    /// The settings window, Save Page and Save Clipboard all write through here; ConfigWatch picks it up.
+    static func update(_ key: String, _ change: (Any?) -> Any?) {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        var obj = (fm.contents(atPath: path).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) ?? [:]
+        let v = change(obj[key])
+        if v == nil || (v as? [Any])?.isEmpty == true || (v as? [String: Any])?.isEmpty == true { obj[key] = nil } else { obj[key] = v }
+        if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) {
+            fm.createFile(atPath: path, contents: data + Data("\n".utf8))
+        }
+    }
+
     /// Opens the config in the default editor, writing a commented example first if there is none.
     static func edit() {
         let fm = FileManager.default

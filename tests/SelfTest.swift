@@ -181,6 +181,48 @@ enum SelfTest {
         let m = HotKeys.merged(["ctrl+opt+c": "Center", "opt+space": "show"], ["alt+ctrl+c": "Maximize", "opt+space": "none"])
         check(m == ["alt+ctrl+c": "Maximize"], "config overrides defaults by key, none removes")
 
+        // Settings window: hotkey edits are written as differences from the defaults
+        let defaults = Config.defaultHotkeys.map { ["combo": $0.key, "action": $0.value] }
+        check(SettingsWindow.hotkeyChanges(defaults).isEmpty, "unchanged hotkeys write nothing")
+        let edited = defaults.filter { $0["combo"] != "opt+space" && $0["combo"] != "ctrl+opt+c" }
+            + [["combo": "alt+ctrl+c", "action": "Maximize"], ["combo": "ctrl+opt+v", "action": "Clipboard History"], ["combo": "", "action": "x"]]
+        check(SettingsWindow.hotkeyChanges(edited) == ["opt+space": "none", "alt+ctrl+c": "Maximize", "ctrl+opt+v": "Clipboard History"],
+              "removed default -> none, rebound and new combos kept, incomplete rows dropped")
+        check(HotKeys.merged(Config.defaultHotkeys, SettingsWindow.hotkeyChanges(edited)).count == Config.defaultHotkeys.count,
+              "written changes merge back to the edited list")
+        check(HotKeys.name(forKeyCode: kVK_LeftArrow) == "left" && HotKeys.name(forKeyCode: kVK_Return) == "return", "key code names")
+
+        func key(_ code: Int, _ chars: String, _ mods: NSEvent.ModifierFlags) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: mods, timestamp: 0, windowNumber: 0, context: nil,
+                             characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: UInt16(code))!
+        }
+        let rec = KeyRecorder()
+        var recorded: [String] = []
+        rec.onRecord = { recorded.append($0) }
+        rec.start(); rec.keyDown(with: key(kVK_ANSI_V, "v", [.control, .option]))
+        rec.start(); rec.keyDown(with: key(kVK_LeftArrow, "", [.command, .shift]))
+        rec.start(); rec.keyDown(with: key(kVK_Escape, "\u{1b}", []))
+        check(recorded == ["ctrl+opt+v", "shift+cmd+left"] && rec.combo == "shift+cmd+left", "recorder: combos recorded, escape cancels")
+        check(HotKeys.parse("shift+cmd+left") != nil, "recorded combos parse")
+
+        // Config.update keeps other keys, and an emptied list removes its key
+        let tmpHome = NSTemporaryDirectory() + "hop-selftest-\(getpid())"
+        setenv("HOP_HOME", tmpHome, 1)
+        try? FileManager.default.createDirectory(atPath: tmpHome, withIntermediateDirectories: true)
+        try? Data(#"{ "snapGap": 4, "theme": "paper" }"#.utf8).write(to: URL(fileURLWithPath: tmpHome + "/config.json"))
+        Config.update("quicklinks") { _ in [["name": "Docs", "url": "https://example.com/{query}", "key": "d"]] }
+        Snippet.save("Hello\nthere")
+        var cfg = Config.load()
+        check(cfg.snapGap == 4 && cfg.quicklinks.first?.key == "d" && cfg.snippets.first?.name == "Hello",
+              "update keeps other keys and adds lists")
+        Config.update("quicklinks") { _ in [[String: String]]() }
+        cfg = Config.load()
+        let raw = (try? String(contentsOfFile: tmpHome + "/config.json", encoding: .utf8)) ?? ""
+        check(cfg.quicklinks.isEmpty && !raw.contains("quicklinks") && raw.contains("paper"), "an emptied list removes its key")
+        check(ConfigCheck.run(text: raw, known: []).errors.isEmpty, "written config passes --check")
+        try? FileManager.default.removeItem(atPath: tmpHome)
+        unsetenv("HOP_HOME")
+
         // Hotkeys
         check(HotKeys.parse("ctrl+opt+left").map { "\($0.key) \($0.mods)" } == "\(kVK_LeftArrow) \(controlKey | optionKey)", "parse ctrl+opt+left")
         check(HotKeys.parse("cmd+bogus") == nil, "unknown key rejected")

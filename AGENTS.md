@@ -1,19 +1,20 @@
 # Configuring Hop (for agents)
 
-Hop is configured by one JSON file. There is no settings UI to drive and no database. Edit the
-file, run the check, done: Hop applies saved changes immediately, no restart.
+Hop is configured by one JSON file and no database. Its Settings window is only a face on that
+file (it rewrites it with sorted keys), so you never need to drive the UI. Edit the file, run the
+check, done: Hop applies saved changes immediately, no restart.
 
 - Config: `~/.config/hop/config.json` (or `$HOP_HOME/config.json`). Missing file = defaults.
 - Scripts: `~/.config/hop/scripts/` (executables, see below).
 - Validate: `/Applications/Hop.app/Contents/MacOS/Hop --check`. Prints `error:` / `warning:` lines
   and `ok: …`. Exit 0 = valid, 1 = errors. Fix every `error:` line; `warning:` lines are hotkeys
   bound to names that do not exist yet (for example an app that is not installed).
-- Inspect: `Hop --menu` prints the settings menu, including every registered hotkey.
+- Inspect: `Hop --menu` prints the menu-bar menu, the feature switches and every registered hotkey.
 - Feature switches (Window Snapping, Clipboard History, Browser Tabs, Exchange Rates, File Search,
-  Check for Updates) live in Hop's menu-bar menu, not in the file:
+  Check for Updates) live in Settings › General, not in the file:
   `defaults write dev.hop.launcher feature.<name> -bool false` with name one of
   windowSnapping, clipboardHistory, browserTabs, exchangeRates, fileSearch, automaticUpdates
-  (the key behind Check for Updates). Then run **Reload Config** from the menu, or save config.json.
+  (the key behind Check for Updates). Then run **Reload Hop Config** in the launcher, or save config.json.
 - Updates are never installed on their own: Hop only checks. Installing is the user's choice
   (**Update to X…** in the menu, or ⌘U in the panel).
 
@@ -52,6 +53,8 @@ Typing the name or keyword in Hop pastes `text`. Placeholders: `{date}` `{time}`
 `{clipboard}`. Needs `text` and one of `name` / `keyword`.
 
 ### quicklinks: `[{ "name", "url", "key"? }]`
+
+Shown as **Bookmarks** in Settings and the launcher.
 
 A URL with `{query}` becomes a search: typing `key something` opens it with `something`. Without
 `{query}` it is a plain link listed by name.

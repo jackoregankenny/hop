@@ -23,9 +23,23 @@ enum Debug {
 
     /// After launch: --show opens the panel, --query prefills it, --snapshot out.png renders it to a
     /// file and quits (no Screen Recording permission needed).
-    static func launched(_ launcher: Launcher) {
+    static func launched(_ launcher: Launcher, settings: SettingsWindow) {
         let args = CommandLine.arguments
         if args.contains("--bench") { bench(launcher); exit(0) }
+        // --settings N out.png: opens settings on tab N and saves its content to out.png.
+        if let i = args.firstIndex(of: "--settings"), i + 2 < args.count, let tab = Int(args[i + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                settings.present(tab: tab, activate: false)   // never takes the keyboard
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    guard let v = settings.window?.contentView?.superview,
+                          let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { exit(1) }
+                    v.cacheDisplay(in: v.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[i + 2]))
+                    exit(0)
+                }
+            }
+            return
+        }
         if args.contains("--show") {
             let q = args.firstIndex(of: "--query").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? ""
             let focus = !args.contains("--snapshot")   // a snapshot must not take the keyboard

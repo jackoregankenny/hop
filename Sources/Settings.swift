@@ -71,15 +71,11 @@ struct Snippet {
 
     /// Appends a snippet to config.json, keeping everything else in it.
     static func save(_ text: String) {
-        let fm = FileManager.default
-        try? fm.createDirectory(atPath: Config.dir, withIntermediateDirectories: true)
-        var obj = (fm.contents(atPath: Config.path).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) ?? [:]
-        var list = obj["snippets"] as? [[String: String]] ?? []
         let first = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
-        list.append(["name": String(first.trimmingCharacters(in: .whitespaces).prefix(40)), "text": text])
-        obj["snippets"] = list
-        if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) {
-            fm.createFile(atPath: Config.path, contents: data)
+        Config.update("snippets") { list in
+            var l = list as? [[String: String]] ?? []
+            l.append(["name": String(first.trimmingCharacters(in: .whitespaces).prefix(40)), "text": text])
+            return l
         }
     }
 }
