@@ -1,13 +1,13 @@
 #!/bin/sh
 # Builds build/Hop.app. No dependencies beyond the Xcode command line tools.
-#   ./build.sh                 build
-#   ./build.sh test            build and run the self-test
+#   ./build.sh                 dev build (includes the self-test and debug flags from tests/)
+#   ./build.sh test            dev build, then run the self-test
 #   ./build.sh snaptest        press Hop's snap hotkeys on a throwaway Finder window and check
 #                              where it lands (needs Accessibility; takes focus for a few seconds)
 #   ./build.sh dist 0.3.0      release build, zipped with a checksum, in dist/
 #   ./build.sh release 0.3.0   tag v0.3.0 and push; GitHub Actions builds and publishes the release
 #
-# Plain builds are version "dev" and never update themselves.
+# Dev builds are version "dev" and never update themselves; release builds (dist) ship only Sources/.
 set -e
 cd "$(dirname "$0")"
 
@@ -20,8 +20,11 @@ build() {
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" \
       "$APP/Contents/Info.plist"
   fi
+  # Dev builds also compile tests/ (self-test, --probe, --snapshot); release builds ship only Sources/.
+  if [ -n "$VERSION" ]; then EXTRA=""; else EXTRA="-D TESTING tests/SelfTest.swift tests/Debug.swift"; fi
+  # shellcheck disable=SC2086
   swiftc -swift-version 5 -Osize -wmo -target arm64-apple-macos13 -module-name Hop \
-    -Xlinker -dead_strip -o "$BIN" Sources/*.swift
+    -Xlinker -dead_strip -o "$BIN" Sources/*.swift $EXTRA
   strip -x "$BIN"
   codesign --force --sign - "$APP" >/dev/null 2>&1
   printf 'Hop %7s bytes\n' "$(stat -f %z "$BIN")"

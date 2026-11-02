@@ -1,7 +1,7 @@
 # Hop
 
 A ⌘Space launcher for macOS in plain Swift + AppKit: about 500 KB, no dependencies, no runtime.
-It reaches into what macOS already exposes (Accessibility, CoreAudio, IOBluetooth, IOKit,
+It reaches into what macOS already exposes (Accessibility, CoreAudio, IOKit,
 Dictionary Services, Spotlight, Apple Events, the `shortcuts` CLI) instead of shipping its own.
 
 Looking for tiling? That's a separate app: [Tiles](https://github.com/jackoregankenny/tiles).
@@ -37,8 +37,6 @@ open build/Hop.app
 
 Source builds are version `dev` and never update themselves.
 
-It reaches into what macOS already exposes (Accessibility, CoreAudio, IOBluetooth, IOKit,
-Dictionary Services, Spotlight, Apple Events, the `shortcuts` CLI) instead of shipping its own.
 
 ⌥Space opens it. ⌘Space works once Spotlight's shortcut is off (System Settings → Keyboard →
 Keyboard Shortcuts → Spotlight). Window actions, menu search, window switching, media keys and
@@ -54,14 +52,14 @@ get a new identity on every rebuild, so macOS asks again after rebuilding.
 | a menu command, e.g. `export pdf` | runs that item from the frontmost app's menu bar |
 | `left half`, `top left quarter`, `center third`, `max`… | snap the focused window (also on global hotkeys, below) |
 | `wifi`, `bluetooth`, `displays`, `dock` | System Settings panes |
-| `speakers`, `airpods`, `microphone` | switch sound output/input, connect Bluetooth devices |
+| `speakers`, `airpods`, `microphone` | switch sound output and input |
 | `12*7+3`, `5 km to mi`, `100 usd to eur` | math, units, live ECB rates. ↵ copies, ⌘↵ pastes |
 | `time in tokyo`, `sf time`, `1700000000` | world clock, unix timestamps |
 | `define serendipity` | the built-in macOS dictionary, offline |
 | `:fire` | emoji by name, ↵ pastes |
 | `clip`, `clip foo` | clipboard history (memory only, skips password-manager copies), ↵ pastes |
 | `quit slack`, `kill node` | quit or force quit running apps |
-| `battery`, `vol 30`, `mute`, `play`, `next track`, `keep awake` | system controls |
+| `battery`, `vol 30`, `mute`, `keep awake`, `lock` | system controls |
 | your Shortcuts by name | runs them through the Shortcuts app |
 | `yt`, `gh`, `x`, `wiki`, `maps`, `r` + query | site search; add your own as quicklinks |
 | a question, or anything not on the Mac | one **Search Google** row, placed by intent (see Ranking) |
@@ -181,5 +179,6 @@ lsof -nP -iTCP:"$1" -sTCP:LISTEN
 
 Typing `port 3000` runs it with `3000`; output shows in the panel, ↵ copies a line.
 
-Flags: `--check` (validate config), `--menu` (print the settings menu), `--probe` (read-only report of
-what it can see), `--selftest`, `--update-now`, and for screenshots `--show --query "text" --snapshot out.png`.
+Flags: `--check` (validate config), `--menu` (print the settings menu), `--update-now`. Dev builds
+(`./build.sh`) also compile `tests/` and add `--selftest`, `--probe` (read-only report of what it can
+see) and, for screenshots, `--show --query "text" --snapshot out.png`; release builds leave them out.

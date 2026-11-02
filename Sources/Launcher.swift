@@ -437,10 +437,6 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         userMoved = false
         pending?.cancel()
         files.cancel()
-        let l = query.lowercased()
-        if ["bluetooth", "bt ", "connect", "disconnect", "airpods", "headphones"].contains(where: { l.hasPrefix($0) }) {
-            Bluetooth.unlocked = true
-        }
         rebuild(keepSelection: false)
 
         let q = query
@@ -535,9 +531,9 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         if let fx = fxAnswer { out.append(answer(fx, "\(q) · ECB rate", .symbol("dollarsign.circle"))) }
         if let tz = Clock.zone(q) { let (t, sub) = Clock.describe(tz); out.append(answer(t, sub, .symbol("clock"))) }
         if let (t, sub) = Clock.unix(q) { out.append(answer(t, sub, .symbol("clock.arrow.circlepath"))) }
-        if let n = Media.volume(q) {
+        if let n = Volume.parse(q) {
             out.append(Item(id: "volume", title: "Set volume to \(n)%", subtitle: "Sound", icon: .symbol("speaker.wave.2"),
-                            action: { Media.setVolume(n) }))
+                            action: { Volume.set(n) }))
         }
         if let w = Define.word(q), let d = Define.lookup(w) {
             out.append(Item(id: "define", title: w, subtitle: d, icon: .symbol("character.book.closed"),
@@ -691,14 +687,6 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                                                    subtitle: d.current ? "Sound \(kind.lowercased()) · current" : "Switch sound \(kind.lowercased())",
                                                    icon: .symbol(d.output ? "hifispeaker" : "mic"), action: { Audio.select(d) })))
         }
-        for d in Bluetooth.paired() {
-            let name = d.name ?? d.addressString ?? "Device"
-            let on = d.isConnected()
-            out.append(Entry(names: [name, "bluetooth \(name)", on ? "disconnect \(name)" : "connect \(name)"], base: -30,
-                             item: Item(id: "bt:\(d.addressString ?? name)", title: "\(on ? "Disconnect" : "Connect") \(name)",
-                                        subtitle: "Bluetooth · \(on ? "connected" : "not connected")",
-                                        icon: .symbol("dot.radiowaves.left.and.right"), action: { Bluetooth.toggle(d) })))
-        }
         for w in windows {
             out.append(Entry(names: [w.title, "\(w.app) \(w.title)"], base: -60,
                              item: Item(id: "win:\(w.app):\(w.title)", title: w.title, subtitle: "\(w.app) window",
@@ -836,9 +824,6 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                 self?.show(query: "clip ")
             },
             cmd("Search Emoji", ["emoji", ":"], "face.smiling", "Type : then a name") { [weak self] in self?.show(query: ":") },
-            cmd("Play / Pause", ["music", "pause", "resume"], "playpause", "Media") { Media.key(Media.playPause) },
-            cmd("Next Track", ["skip", "music"], "forward", "Media") { Media.key(Media.next) },
-            cmd("Previous Track", ["back", "music"], "backward", "Media") { Media.key(Media.previous) },
             cmd("Toggle Mute", ["mute", "unmute", "sound off"], "speaker.slash", "Sound") {
                 System.script("set volume output muted not (output muted of (get volume settings))")
             },
@@ -878,10 +863,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             },
             cmd("Edit Hop Config", ["hotkeys", "snippets", "config"], "gearshape", Config.path) { Config.edit() },
             cmd("Save Clipboard as Snippet", ["snippet", "new snippet"], "text.badge.plus", "Adds it to config.json") {
-                [weak self] in
-                guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
-                Snippet.save(text)
-                self?.applyConfig()
+                [weak self] in if Snippet.saveClipboard() { self?.applyConfig() }
             },
             cmd("Reload Hop Config", ["refresh", "reload"], "arrow.triangle.2.circlepath", "Hotkeys, quicklinks, scripts") {
                 [weak self] in self?.applyConfig()
@@ -945,7 +927,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         let table: [(String, String, String, String?)] = [
             ("menu-more", "Menu", "Show all", nil), ("cmd:", "Command", "Run", nil), ("pane:", "System Settings", "Open", nil), ("wm:", "Window", "Move", nil),
             ("snippet:", "Snippet", "Paste", "Copy"), ("link:", "Quicklink", "Open", nil), ("script:", "Script", "Run", nil),
-            ("shortcut:", "Shortcut", "Run", nil), ("audio:", "Sound", "Switch", nil), ("bt:", "Bluetooth", "Toggle", nil),
+            ("shortcut:", "Shortcut", "Run", nil), ("audio:", "Sound", "Switch", nil),
             ("win:", "Window", "Switch to", nil), ("tab:", "Tab", "Switch to", "Copy URL"), ("menu:", "Menu", "Click", nil),
             ("answer", "Answer", "Copy", "Paste"), ("google", "Web", "Search", nil), ("bang:", "Web", "Search", nil),
             ("url", "Web", "Open", nil), ("define", "Dictionary", "Open", "Copy"), ("emoji:", "Emoji", "Paste", "Copy"),

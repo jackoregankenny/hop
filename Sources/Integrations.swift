@@ -3,7 +3,6 @@ import ApplicationServices
 import Carbon.HIToolbox
 import CoreAudio
 import CoreServices
-import IOBluetooth
 import IOKit.ps
 
 // Things macOS already exposes, wired into the launcher. Each one is a small, self-contained source.
@@ -222,42 +221,16 @@ enum Audio {
     }
 }
 
-/// Paired Bluetooth devices. Only touched after the user asks for Bluetooth, because the first
-/// access shows the system permission prompt.
-enum Bluetooth {
-    static var unlocked = false
-    static func paired() -> [IOBluetoothDevice] {
-        guard unlocked else { return [] }
-        return (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
-    }
-    static func toggle(_ d: IOBluetoothDevice) {
-        DispatchQueue.global().async {
-            if d.isConnected() { d.closeConnection() } else { d.openConnection() }
-        }
-    }
-}
-
-enum Media {
-    /// Posts the hardware media keys, so it drives whatever is Now Playing (Music, Spotify, a browser tab).
-    static func key(_ code: Int32) {
-        guard AXIsProcessTrusted() else { AX.ensureTrusted(); return }
-        for down in [true, false] {
-            let flags = NSEvent.ModifierFlags(rawValue: down ? 0xa00 : 0xb00)
-            let data1 = Int((code << 16) | ((down ? 0xa : 0xb) << 8))
-            NSEvent.otherEvent(with: .systemDefined, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0,
-                               context: nil, subtype: 8, data1: data1, data2: -1)?.cgEvent?.post(tap: .cghidEventTap)
-        }
-    }
-    static let playPause: Int32 = 16, next: Int32 = 17, previous: Int32 = 18
-
-    static func volume(_ q: String) -> Int? {
+enum Volume {
+    /// "vol 30", "volume 30%"
+    static func parse(_ q: String) -> Int? {
         let l = q.lowercased()
         for p in ["volume ", "vol "] where l.hasPrefix(p) {
             if let n = Int(l.dropFirst(p.count).trimmingCharacters(in: CharacterSet(charactersIn: " %"))), (0...100).contains(n) { return n }
         }
         return nil
     }
-    static func setVolume(_ n: Int) { System.script("set volume output volume \(n)") }
+    static func set(_ n: Int) { System.script("set volume output volume \(n)") }
 }
 
 enum Paste {

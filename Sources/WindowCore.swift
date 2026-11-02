@@ -136,17 +136,6 @@ enum WindowCore {
         return out
     }
 
-    /// Ids of normal on-screen windows, without any AX calls. Cheap enough to poll.
-    static func onScreenIDs() -> [CGWindowID] {
-        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]] else { return [] }
-        let me = getpid()
-        return info.compactMap { w in
-            guard (w[kCGWindowLayer as String] as? Int) == 0, (w[kCGWindowOwnerPID as String] as? pid_t) != me else { return nil }
-            return w[kCGWindowNumber as String] as? CGWindowID
-        }.sorted()
-    }
-
     static func focused() -> Win? {
         guard let front = NSWorkspace.shared.frontmostApplication else { return nil }
         let app = AX.app(front.processIdentifier)
@@ -157,11 +146,4 @@ enum WindowCore {
     }
 
     static func move(_ w: Win, cocoa r: CGRect) { AX.setFrame(w.el, Geo.flip(r.integral), app: w.app) }
-
-    static func raise(_ w: Win) {
-        AX.set(w.el, kAXMainAttribute, kCFBooleanTrue)
-        AXUIElementPerformAction(w.el, kAXRaiseAction as CFString)
-        // Setting AXFrontmost works from a background app, where NSRunningApplication.activate may be refused.
-        AX.set(w.app, kAXFrontmostAttribute, kCFBooleanTrue)
-    }
 }

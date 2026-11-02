@@ -13,7 +13,6 @@
 	<key>LSUIElement</key><true/>
 	<key>RFUpdateRepo</key><string>jackoregankenny/hop</string>
 	<key>NSHighResolutionCapable</key><true/>
-	<key>NSBluetoothAlwaysUsageDescription</key><string>Hop lists your paired Bluetooth devices so you can connect and disconnect them.</string>
 	<key>NSAppleEventsUsageDescription</key><string>Hop uses System Events to toggle dark mode, browsers to search open tabs, Finder to eject disks, and loginwindow to restart, shut down or log out.</string>
 </dict>
 </plist>

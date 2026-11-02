@@ -1,6 +1,8 @@
 import AppKit
 
-if CommandLine.arguments.contains("--selftest") { SelfTest.run() }
+#if TESTING
+Debug.early()   // --selftest, --probe: dev builds only (tests/Debug.swift)
+#endif
 
 // --update-now checks GitHub Releases and installs over this copy without restarting (for testing updates).
 if CommandLine.arguments.contains("--update-now") {
@@ -10,20 +12,6 @@ if CommandLine.arguments.contains("--update-now") {
     u.check(install: true, relaunch: false) { finished = true }
     while !finished && RunLoop.main.run(mode: .default, before: .distantFuture) {}
     print("result:", u.state, "·", u.menuTitle)
-    exit(0)
-}
-
-// --probe reports what Hop can see on this Mac without changing anything.
-if CommandLine.arguments.contains("--probe") {
-    print("accessibility trusted:", AXIsProcessTrusted())
-    print("windows on this Space:", WindowCore.windows().count, "· focused:", WindowCore.focused()?.appName ?? "none")
-    if let front = NSWorkspace.shared.frontmostApplication {
-        print("menu items in \(front.localizedName ?? "?"):", Menus.read(pid: front.processIdentifier, appName: front.localizedName ?? "").count)
-    }
-    print("window titles (all apps):", WindowList.read().count)
-    print("shortcuts:", Shortcuts.list().count)
-    print("audio devices:", Audio.devices().map { "\($0.output ? "out" : "in"):\($0.name)\($0.current ? "*" : "")" }.joined(separator: ", "))
-    print("battery:", Battery.status().map { "\($0.0) \($0.1)" } ?? "none")
     exit(0)
 }
 
@@ -75,29 +63,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             exit(0)
         }
 
-        // --show opens the panel at launch; --query "text" prefills it (handy for screenshots).
-        let args = CommandLine.arguments
-        if args.contains("--show") {
-            let q = args.firstIndex(of: "--query").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? ""
-            let focus = !args.contains("--snapshot")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.launcher.show(query: q, focus: focus) }
-        }
-        // --snapshot out.png renders the panel to a file and quits (no Screen Recording permission needed).
-        if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                // The content, not the backdrop: Liquid Glass is drawn by the window server and
-                // cannot be captured offscreen, so this shows layout and text, not the material.
-                let v = self.launcher.root
-                if ProcessInfo.processInfo.environment["HOP_DEBUG"] != nil {
-                    print("backdrop:", type(of: self.launcher.panel.contentView!), "root:", v.frame, "in", v.superview.map { "\(type(of: $0))" } ?? "nothing")
-                }
-                guard
-                      let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { exit(1) }
-                v.cacheDisplay(in: v.bounds, to: rep)
-                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[i + 1]))
-                exit(0)
-            }
-        }
+        #if TESTING
+        Debug.launched(launcher)   // --show, --query, --snapshot: dev builds only
+        #endif
     }
 
     @objc func open() { launcher.show() }
@@ -145,11 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if launcher.config.snippets.isEmpty { add(snips, "No snippets yet", enabled: false) {} }
         snips.addItem(.separator())
-        add(snips, "Save Clipboard as Snippet") { [weak self] in
-            guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
-            Snippet.save(text)
-            self?.launcher.applyConfig()
-        }
+        add(snips, "Save Clipboard as Snippet") { [weak self] in if Snippet.saveClipboard() { self?.launcher.applyConfig() } }
         add(snips, "Edit Snippets…") { Config.edit() }
         submenu(menu, "Snippets (\(launcher.config.snippets.count))", snips)
 

@@ -60,6 +60,13 @@ struct Snippet {
         }
     }
 
+    /// Saves the clipboard's text as a snippet. False when there is no text to save.
+    static func saveClipboard() -> Bool {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return false }
+        save(text)
+        return true
+    }
+
     /// Appends a snippet to config.json, keeping everything else in it.
     static func save(_ text: String) {
         let fm = FileManager.default

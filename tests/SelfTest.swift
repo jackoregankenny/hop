@@ -185,7 +185,7 @@ enum SelfTest {
         // CI machines have no sound hardware and may lack dictionaries.
         let ci = ProcessInfo.processInfo.environment["CI"] != nil
         check(ci || Define.lookup("serendipity")?.contains("chance") == true, "dictionary lookup")
-        check(Media.volume("vol 30") == 30 && Media.volume("volume 300") == nil, "volume parse")
+        check(Volume.parse("vol 30") == 30 && Volume.parse("volume 300") == nil, "volume parse")
         check(SettingsPanes.all.contains { Match.score("wifi", $0.name) != nil || $0.keywords.contains("wifi") }, "wifi pane")
         check(ci || !Audio.devices().isEmpty, "audio devices listed")
 
