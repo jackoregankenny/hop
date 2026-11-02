@@ -80,24 +80,27 @@ final class Updater {
                 guard !tag.isEmpty else {
                     // A background check that fails keeps showing what it found; an install the user asked for says why not.
                     let failed = State.failed(error?.localizedDescription ?? "No release found")
-                    self.state = install ? failed : self.found.map { .available($0) } ?? failed
-                    done?(); return
+                    return self.finish(install ? failed : self.found.map { .available($0) } ?? failed, done)
                 }
-                guard Updater.isNewer(tag, than: self.current) else { self.state = .upToDate; done?(); return }
+                guard Updater.isNewer(tag, than: self.current) else { return self.finish(.upToDate, done) }
                 self.found = tag
-                self.state = .available(tag)
-                guard install else { done?(); return }
+                guard install else { return self.finish(.available(tag), done) }
                 guard let zip = assets["\(self.app).zip"], let sum = assets["\(self.app).zip.sha256"] else {
-                    self.state = .failed("The release has no \(self.app).zip"); done?(); return
+                    return self.finish(.failed("The release has no \(self.app).zip"), done)
                 }
                 self.install(tag, zip: zip, sum: sum, relaunch: relaunch, done: done)
             }
         }.resume()
     }
 
+    private func finish(_ result: State, _ done: (() -> Void)?) {
+        state = result
+        done?()
+    }
+
     private func install(_ version: String, zip: URL, sum: URL, relaunch: Bool, done: (() -> Void)?) {
         state = .installing
-        let finish = { (result: State) in DispatchQueue.main.async { self.state = result; done?() } }
+        let finish = { (result: State) in DispatchQueue.main.async { self.finish(result, done) } }
         DispatchQueue.global(qos: .utility).async {
             do {
                 let expected = String(decoding: try Data(contentsOf: sum), as: UTF8.self)
@@ -111,9 +114,7 @@ final class Updater {
                 try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
                 let archive = tmp.appendingPathComponent("\(self.app).zip")
                 try data.write(to: archive)
-                let ditto = Process()
-                ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-                ditto.arguments = ["-x", "-k", archive.path, tmp.path]
+                let ditto = System.process("/usr/bin/ditto", ["-x", "-k", archive.path, tmp.path])
                 try ditto.run()
                 ditto.waitUntilExit()
 
@@ -134,10 +135,7 @@ final class Updater {
 
     /// Restarts into the new version right away: the user just asked for it.
     private func relaunch() {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
-        try? p.run()
+        try? System.process("/bin/sh", ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]).run()
         NSApp.terminate(nil)
     }
 

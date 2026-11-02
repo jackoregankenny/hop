@@ -1,5 +1,7 @@
 # Hop
 
+[![Lines of Swift](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/jackoregankenny/hop/badges/loc.json)](.github/workflows/loc.yml)
+
 A ⌘Space launcher for macOS in plain Swift + AppKit: about 500 KB, no dependencies, no runtime.
 It reaches into what macOS already exposes (Accessibility, CoreAudio, IOKit,
 Dictionary Services, Spotlight, Apple Events, the `shortcuts` CLI) instead of shipping its own.

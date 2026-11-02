@@ -102,39 +102,9 @@ enum WindowCore {
         let el: AXUIElement
         let app: AXUIElement
         let id: CGWindowID
-        let pid: pid_t
-        let appName: String
         var frame: CGRect   // AX coordinates
     }
 
-    /// Normal windows on the current Space, front to back.
-    static func windows() -> [Win] {
-        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]] else { return [] }
-        let me = getpid()
-        var apps: [pid_t: (AXUIElement, [CGWindowID: AXUIElement])] = [:]
-        var out: [Win] = []
-        for w in info {
-            guard (w[kCGWindowLayer as String] as? Int) == 0,
-                  let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me,
-                  let id = w[kCGWindowNumber as String] as? CGWindowID,
-                  let b = w[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: b), bounds.width >= 100, bounds.height >= 60
-            else { continue }
-            if apps[pid] == nil {
-                let app = AX.app(pid)
-                var map: [CGWindowID: AXUIElement] = [:]
-                for el in (AX.attr(app, kAXWindowsAttribute) as? [AXUIElement]) ?? [] {
-                    if let wid = AX.windowID(el) { map[wid] = el }
-                }
-                apps[pid] = (app, map)
-            }
-            guard let (app, map) = apps[pid], let el = map[id] else { continue }
-            out.append(Win(el: el, app: app, id: id, pid: pid, appName: w[kCGWindowOwnerName as String] as? String ?? "",
-                           frame: bounds))
-        }
-        return out
-    }
 
     static func focused() -> Win? {
         guard let front = NSWorkspace.shared.frontmostApplication else { return nil }
@@ -142,7 +112,7 @@ enum WindowCore {
         guard let v = AX.attr(app, kAXFocusedWindowAttribute), CFGetTypeID(v) == AXUIElementGetTypeID() else { return nil }
         let el = v as! AXUIElement
         guard let id = AX.windowID(el), let frame = AX.frame(el) else { return nil }
-        return Win(el: el, app: app, id: id, pid: front.processIdentifier, appName: front.localizedName ?? "", frame: frame)
+        return Win(el: el, app: app, id: id, frame: frame)
     }
 
     static func move(_ w: Win, cocoa r: CGRect) { AX.setFrame(w.el, Geo.flip(r.integral), app: w.app) }

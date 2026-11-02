@@ -355,35 +355,22 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         output = nil
         tabs = []
         tabsLoaded = false
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let devices = Audio.devices()   // CoreAudio can take ~100 ms the first time
-            DispatchQueue.main.async { self?.audio = devices; self?.sourcesChanged() }
-        }
+        System.background(Audio.devices) { [weak self] in self?.audio = $0; self?.sourcesChanged() }   // CoreAudio: ~100 ms cold
         scripts = Script.load()
         running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != getpid() }
-        let front = NSWorkspace.shared.frontmostApplication
-        let trusted = AXIsProcessTrusted()
         menus = []
         windows = []
-        if trusted, let front, front.processIdentifier != getpid() {
+        if AXIsProcessTrusted(), let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != getpid() {
             let pid = front.processIdentifier, name = front.localizedName ?? ""
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let m = Menus.read(pid: pid, appName: name)
-                let w = WindowList.read()
-                DispatchQueue.main.async {
-                    self?.menus = m
-                    self?.windows = w
-                    self?.sourcesChanged()
-                    if self?.query.isEmpty == false { self?.rebuild(keepSelection: true) }
-                }
+            System.background({ (Menus.read(pid: pid, appName: name), WindowList.read()) }) { [weak self] in
+                self?.menus = $0.0
+                self?.windows = $0.1
+                self?.arrived()
             }
         }
         if Date().timeIntervalSince(shortcutsLoaded) > 60 {
             shortcutsLoaded = Date()
-            DispatchQueue.global(qos: .utility).async {
-                let list = Shortcuts.list()
-                DispatchQueue.main.async { self.shortcuts = list; self.sourcesChanged() }
-            }
+            System.background(Shortcuts.list, qos: .utility) { self.shortcuts = $0; self.sourcesChanged() }
         }
     }
 
@@ -391,14 +378,13 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     private func loadTabsIfNeeded() {
         guard !tabsLoaded, Feature.browserTabs.isOn else { return }
         tabsLoaded = true
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let t = Tabs.read()
-            DispatchQueue.main.async {
-                self?.tabs = t
-                self?.sourcesChanged()
-                if self?.query.isEmpty == false { self?.rebuild(keepSelection: true) }
-            }
-        }
+        System.background(Tabs.read) { [weak self] in self?.tabs = $0; self?.arrived() }
+    }
+
+    /// A source finished loading after the panel opened: rank it in with what is already showing.
+    private func arrived() {
+        sourcesChanged()
+        if !query.isEmpty { rebuild(keepSelection: true) }
     }
 
     // MARK: input
@@ -530,9 +516,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     private func answer(_ value: String, _ label: String, _ icon: Item.Icon) -> Item {
-        let clipboard = self.clipboard
-        return Item(id: "answer", title: value, subtitle: "\(label) · ↵ copy · ⌘↵ paste", icon: icon,
-                    action: { clipboard.copy(value) }, alt: { Paste.paste(value, clipboard) })
+        Item(id: "answer", title: value, subtitle: "\(label) · ↵ copy · ⌘↵ paste", icon: icon,
+             action: { [clipboard] in clipboard.copy(value) }, alt: { [clipboard] in Paste.paste(value, clipboard) })
     }
 
     func compose(_ q: String) -> [Item] {
@@ -715,14 +700,14 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                              item: Item(id: "pane:\(p.id)", title: p.name, subtitle: "System Settings",
                                         icon: .file("/System/Applications/System Settings.app"), action: { SettingsPanes.open(p.id) })))
         }
-        let clipboard = self.clipboard
         for s in config.snippets {
             let preview = s.text.replacingOccurrences(of: "\n", with: " ⏎ ")
             out.append(Entry(names: [s.name] + (s.keyword.map { [$0] } ?? []), base: -5, aliasWeight: 1,
                              item: Item(id: "snippet:\(s.name)", title: s.name,
                                         subtitle: label("Snippet", s.name) + (s.keyword.map { " · \($0)" } ?? "") + " · " + preview,
                                         icon: .symbol("text.quote"),
-                                        action: { Paste.paste(s.expanded(), clipboard) }, alt: { clipboard.copy(s.expanded()) })))
+                                        action: { [clipboard] in Paste.paste(s.expanded(), clipboard) },
+                                        alt: { [clipboard] in clipboard.copy(s.expanded()) })))
         }
         for l in config.quicklinks {
             let hasQuery = l.url.contains("{query}")
@@ -798,10 +783,9 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     private func emojiItems(_ q: String) -> [Item] {
-        let clipboard = self.clipboard
-        return Emoji.search(q).map { e, name in
+        Emoji.search(q).map { e, name in
             Item(id: "emoji:\(e)", title: name.capitalized, subtitle: "↵ paste · ⌘↵ copy", icon: .text(e),
-                 action: { Paste.paste(e, clipboard) }, alt: { clipboard.copy(e) })
+                 action: { [clipboard] in Paste.paste(e, clipboard) }, alt: { [clipboard] in clipboard.copy(e) })
         }
     }
 
@@ -820,21 +804,16 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             return [Item(id: "clip-empty", title: "Clipboard history is empty", subtitle: "Copy some text or an image and it shows up here",
                          icon: .symbol("doc.on.clipboard"), action: {})]
         }
-        let clipboard = self.clipboard
         let hint = AXIsProcessTrusted() ? "↵ paste · ⌘↵ copy" : "↵ copy"
         return list.prefix(50).enumerated().map { i, c in
-            switch c {
-            case .text(let s):
-                let first = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s
-                return Item(id: "clip:\(i)", title: first.trimmingCharacters(in: .whitespaces),
-                            subtitle: "\(s.count) characters · " + hint, icon: .symbol("doc.on.clipboard"),
-                            action: { Paste.paste(c, clipboard) }, alt: { clipboard.copy(c) })
-            case let .image(data, _, thumb, size):
-                let kb = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
-                return Item(id: "clip:\(i)", title: "Image \(Int(size.width))×\(Int(size.height))",
-                            subtitle: "\(kb) · " + hint, icon: .image(thumb),
-                            action: { Paste.paste(c, clipboard) }, alt: { clipboard.copy(c) })
+            let (title, sub, icon): (String, String, Item.Icon) = switch c {
+            case .text(let s): ((s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s).trimmingCharacters(in: .whitespaces),
+                                "\(s.count) characters", .symbol("doc.on.clipboard"))
+            case let .image(data, _, thumb, size): ("Image \(Int(size.width))×\(Int(size.height))",
+                                                    ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file), .image(thumb))
             }
+            return Item(id: "clip:\(i)", title: title, subtitle: "\(sub) · " + hint, icon: icon,
+                        action: { [clipboard] in Paste.paste(c, clipboard) }, alt: { [clipboard] in clipboard.copy(c) })
         }
     }
 
@@ -867,12 +846,11 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     private func outputItems(_ o: (title: String, lines: [String])) -> [Item] {
-        let clipboard = self.clipboard
         let all = o.lines.joined(separator: "\n")
         return o.lines.prefix(200).enumerated().map { i, line in
             Item(id: "out:\(i)", title: line, subtitle: i == 0 ? "\(o.title) · ↵ copy line · ⌘↵ copy all · esc back" : "",
                  icon: .symbol(i == 0 ? "terminal" : "text.alignleft"),
-                 action: { clipboard.copy(line) }, alt: { clipboard.copy(all) })
+                 action: { [clipboard] in clipboard.copy(line) }, alt: { [clipboard] in clipboard.copy(all) })
         }
     }
 
@@ -944,10 +922,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             cmd("Reload Hop Config", ["refresh", "reload"], "arrow.triangle.2.circlepath", "Hotkeys, quicklinks, scripts") {
                 [weak self] in self?.applyConfig()
             },
-            cmd("Open Scripts Folder", ["plugins", "extensions", "script commands"], "terminal", Config.scriptsDir) {
-                try? FileManager.default.createDirectory(atPath: Config.scriptsDir, withIntermediateDirectories: true)
-                NSWorkspace.shared.open(URL(fileURLWithPath: Config.scriptsDir))
-            },
+            cmd("Open Scripts Folder", ["plugins", "extensions", "script commands"], "terminal", Config.scriptsDir) { Config.openScripts() },
             cmd(login ? "Don't Launch Hop at Login" : "Launch Hop at Login", ["startup", "login"], "power.circle") {
                 System.launchAtLogin = !login
             },

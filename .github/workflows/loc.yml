@@ -1,0 +1,61 @@
+# Counts lines of Swift with `./build.sh loc`. On main it refreshes the README's LOC badge, which reads
+# loc.json from the `badges` branch (one commit, force-pushed). On a pull request it posts the change
+# against the base branch, as a comment that is edited in place on every push.
+name: LOC
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write        # push the badge branch
+  pull-requests: write   # comment on pull requests
+
+jobs:
+  loc:
+    runs-on: ubuntu-latest   # just text counting; no need for a macOS runner
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Count
+        run: ./build.sh loc | tee loc.txt
+
+      - name: Update badge
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          n=$(awk '$1 == "Sources" { print $2 }' loc.txt)
+          mkdir "$RUNNER_TEMP/badge" && cd "$RUNNER_TEMP/badge"
+          printf '{"schemaVersion":1,"label":"lines of Swift","message":"%s","color":"blue"}\n' "$n" > loc.json
+          git init -q -b badges
+          git add loc.json
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -qm "LOC: $n"
+          git push -qf "https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git" badges
+          echo "Sources: $n lines of Swift" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare with base
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: ${{ github.base_ref }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          git worktree add -q "$RUNNER_TEMP/base" "origin/$BASE"
+          ./build.sh loc "$RUNNER_TEMP/base" > base.txt
+          {
+            echo "### Lines of Swift"
+            echo
+            echo "| | $BASE | this PR | change |"
+            echo "|---|--:|--:|--:|"
+            paste base.txt loc.txt | awk '{ printf "| %s | %d | %d | %+d |\n", $1, $2, $4, $4 - $2 }'
+            echo
+            echo "<sub>Blank and comment-only lines not counted. \`./build.sh loc\` gives the same numbers locally.</sub>"
+          } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+          # Pull requests from forks get a read-only token; the job summary above still has the table.
+          gh pr comment "$PR" --body-file comment.md --edit-last --create-if-none \
+            || echo "::notice::Could not comment on the pull request; see the job summary."

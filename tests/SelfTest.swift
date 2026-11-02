@@ -160,15 +160,13 @@ enum SelfTest {
         check(Updater(app: "Hop").pending == nil || ProcessInfo.processInfo.environment["HOP_FAKE_UPDATE"] != nil,
               "nothing pending before a check")
 
-        // The fast scorer must rank exactly like bonus, prefix fallback included.
+        // Usage points: frecency, plus this query's share of picks, or half that for a shorter prefix.
         // Literal data, so nothing is written to Hop's preferences.
         let p: [String: [String: Double]] = ["sl": ["slack": 3], "s": ["spotify": 1, "slack": 1]]
         let fr: [String: [Double]] = ["slack": [4, 0], "safari": [2, 0]]
         let fast = Usage.scorer(query: "sl", now: 86_400, picks: p, frecency: fr)
-        check(["slack", "spotify", "safari", "none"].allSatisfy {
-            abs(fast($0) - Usage.bonus($0, query: "sl", now: 86_400, picks: p, frecency: fr)) < 0.001
-        }, "fast usage scorer matches bonus, prefix fallback included")
-        check(fast("spotify") > 0, "an item picked only for a shorter prefix still gets credit")
+        check(abs(fast("spotify") - 100) < 0.001 && fast("none") == 0, "a pick for a shorter prefix counts half")
+        check(fast("slack") > 400 + fast("safari"), "picks for the exact query count in full, on top of frecency")
 
         // Snippets
         let sn = Snippet.parse([["name": "Link", "keyword": "MDL", "text": "[x]({clipboard}) on {date}"], ["text": "no name"]])
@@ -278,6 +276,11 @@ enum SelfTest {
         let scripts = Script.load(from: dir)
         check(scripts.contains { $0.title == "What's on Port" && $0.argument == "port" }, "script metadata with argument")
         check(scripts.contains { $0.title == "Copy UUID" && $0.mode == "silent" }, "silent script")
+        let hop = NSTemporaryDirectory() + "hop-selftest-scripts"
+        try? FileManager.default.createDirectory(atPath: hop, withIntermediateDirectories: true)
+        try? "#!/bin/sh\n# @hop.title Hop Header\n# @hop.mode silent\n".write(toFile: hop + "/h.sh", atomically: true, encoding: .utf8)
+        check(Script.load(from: hop).contains { $0.title == "Hop Header" && $0.mode == "silent" }, "@hop. headers work like @raycast.")
+        try? FileManager.default.removeItem(atPath: hop)
 
         print(fails == 0 ? "\nall passed" : "\n\(fails) failed")
         exit(fails == 0 ? 0 : 1)

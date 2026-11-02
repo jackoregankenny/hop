@@ -25,8 +25,7 @@ struct Config {
 
     static func load() -> Config {
         var c = Config()
-        guard let data = FileManager.default.contents(atPath: path),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return c }
+        guard let obj = raw() else { return c }
         c.hotkeys = HotKeys.merged(defaultHotkeys, obj["hotkeys"] as? [String: String])
         c.quicklinks = (obj["quicklinks"] as? [[String: String]] ?? []).compactMap { q in
             guard let name = q["name"], let url = q["url"] else { return nil }
@@ -38,12 +37,17 @@ struct Config {
         return c
     }
 
+    /// config.json as written; nil when it is missing or not a JSON object.
+    static func raw() -> [String: Any]? {
+        FileManager.default.contents(atPath: path).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+
     /// Rewrites one top-level key of config.json and keeps the rest; nil or an empty list removes the key.
     /// The settings window, Save Page and Save Clipboard all write through here; ConfigWatch picks it up.
     static func update(_ key: String, _ change: (Any?) -> Any?) {
         let fm = FileManager.default
         try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        var obj = (fm.contents(atPath: path).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) ?? [:]
+        var obj = raw() ?? [:]
         let v = change(obj[key])
         if v == nil || (v as? [Any])?.isEmpty == true || (v as? [String: Any])?.isEmpty == true { obj[key] = nil } else { obj[key] = v }
         if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) {
@@ -57,6 +61,11 @@ struct Config {
         try? fm.createDirectory(atPath: scriptsDir, withIntermediateDirectories: true)
         if !fm.fileExists(atPath: path) { try? sample.write(toFile: path, atomically: true, encoding: .utf8) }
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    static func openScripts() {
+        try? FileManager.default.createDirectory(atPath: scriptsDir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(URL(fileURLWithPath: scriptsDir))
     }
 
     static let sample = """
@@ -86,7 +95,7 @@ struct Config {
 
 /// Script commands: executables in ~/.config/hop/scripts with metadata comments.
 /// Raycast's script-command headers (@raycast.title, .mode, .icon, .argument1) are read as-is,
-/// so scripts written for it run here unchanged; @hop.* works too.
+/// so scripts written for it run here unchanged; @hop.* works too (and @rayfast.*, Hop's old name).
 struct Script {
     let path: String
     let title: String
@@ -98,7 +107,7 @@ struct Script {
     static func load(from dir: String = Config.scriptsDir) -> [Script] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
-        let re = try? NSRegularExpression(pattern: #"@ray(?:cast|fast)\.([A-Za-z0-9]+)[ \t]+(.+?)\s*$"#, options: .anchorsMatchLines)
+        let re = try? NSRegularExpression(pattern: #"@(?:raycast|rayfast|hop)\.([A-Za-z0-9]+)[ \t]+(.+?)\s*$"#, options: .anchorsMatchLines)
         return names.sorted().compactMap { name in
             let path = (dir as NSString).appendingPathComponent(name)
             guard !name.hasPrefix("."), let h = FileHandle(forReadingAtPath: path) else { return nil }
@@ -123,14 +132,8 @@ struct Script {
     /// Runs off the main thread with a 30 s limit and a PATH that includes Homebrew.
     func run(_ arg: String?, done: @escaping (String, Int32) -> Void) {
         DispatchQueue.global().async {
-            let p = Process()
-            if FileManager.default.isExecutableFile(atPath: path) {
-                p.executableURL = URL(fileURLWithPath: path)
-                p.arguments = arg.map { [$0] } ?? []
-            } else {
-                p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                p.arguments = [path] + (arg.map { [$0] } ?? [])
-            }
+            let exec = FileManager.default.isExecutableFile(atPath: path)   // otherwise zsh runs it
+            let p = System.process(exec ? path : "/bin/zsh", (exec ? [] : [path]) + (arg.map { [$0] } ?? []))
             p.currentDirectoryURL = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent)
             var env = ProcessInfo.processInfo.environment
             env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
@@ -192,8 +195,7 @@ final class ConfigWatch {
 /// `hop --check`: validates config.json and says exactly what is wrong, for people and agents.
 enum ConfigCheck {
     static let topKeys: Set<String> = ["hotkeys", "snapGap", "snippets", "quicklinks", "theme"]
-    static let themeKeys: Set<String> = ["preset", "appearance", "blur", "background", "accent", "font", "fontSize",
-                                         "width", "rows", "rowHeight", "radius"]
+    static let themeKeys = Set(["preset", "appearance", "blur", "background", "accent", "font"]).union(Theme.limits.keys)
 
     /// `known`: lowercased names a hotkey may run (commands, apps, snippets, scripts, quicklinks).
     static func run(text: String?, known: Set<String>) -> (errors: [String], warnings: [String], summary: String) {
@@ -260,13 +262,10 @@ enum ConfigCheck {
             if let p = d["preset"] as? String, Theme.presets[p.lowercased()] == nil { errors.append("theme.preset: no preset \"\(p)\"") }
             for k in ["background", "accent"] { if let c = d[k] as? String, Theme.color(c) == nil {
                 errors.append("theme.\(k): \"\(c)\" is not a colour; use #rgb, #rrggbb or #rrggbbaa") } }
-            if let b = d["blur"] as? String, !Theme.blurs.contains(b.lowercased()) {
-                errors.append("theme.blur: use one of \(Theme.blurs.sorted().joined(separator: ", "))")
+            for (k, options) in [("blur", Theme.blurs), ("appearance", Theme.appearances)] {
+                if let v = d[k] as? String, !options.contains(v.lowercased()) { errors.append("theme.\(k): use one of \(options.sorted().joined(separator: ", "))") }
             }
-            if let a = d["appearance"] as? String, !["auto", "dark", "light"].contains(a.lowercased()) {
-                errors.append("theme.appearance: use auto, dark or light")
-            }
-            for k in ["fontSize", "width", "rows", "rowHeight", "radius"] where d[k] != nil && !(d[k] is NSNumber) {
+            for k in Theme.limits.keys.sorted() where d[k] != nil && !(d[k] is NSNumber) {
                 errors.append("theme.\(k) must be a number")
             }
         default: errors.append("theme must be a preset name or an object")

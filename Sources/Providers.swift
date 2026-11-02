@@ -55,22 +55,27 @@ enum Icons {
             return nil
         case .image(let img): return img   // already a small thumbnail
         case .symbol(let name):
-            if let img = memory.object(forKey: ("s:" + name) as NSString) { return img }
-            let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
-            if let img { memory.setObject(img, forKey: ("s:" + name) as NSString) }
-            return img
-        case .text(let t):
-            if let img = memory.object(forKey: ("t:" + t) as NSString) { return img }
-            let img = NSImage(size: NSSize(width: 28, height: 28), flipped: false) { r in
-                let s = NSAttributedString(string: t, attributes: [.font: NSFont.systemFont(ofSize: 22)])
-                let sz = s.size()
-                s.draw(at: NSPoint(x: (r.width - sz.width) / 2, y: (r.height - sz.height) / 2))
-                return true
+            return memo("s:" + name) {
+                NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
             }
-            memory.setObject(img, forKey: ("t:" + t) as NSString)
-            return img
+        case .text(let t):
+            return memo("t:" + t) {
+                NSImage(size: NSSize(width: 28, height: 28), flipped: false) { r in
+                    let s = NSAttributedString(string: t, attributes: [.font: NSFont.systemFont(ofSize: 22)])
+                    let sz = s.size()
+                    s.draw(at: NSPoint(x: (r.width - sz.width) / 2, y: (r.height - sz.height) / 2))
+                    return true
+                }
+            }
         }
+    }
+
+    /// The image in memory under `key`, made and kept the first time.
+    private static func memo(_ key: String, _ make: () -> NSImage?) -> NSImage? {
+        if let img = memory.object(forKey: key as NSString) { return img }
+        let img = make()
+        if let img { memory.setObject(img, forKey: key as NSString) }
+        return img
     }
 
     /// Makes sure every app has an icon on disk, in the background at low priority. Already
@@ -130,12 +135,11 @@ enum Web {
     static func open(_ s: String) { if let u = URL(string: s) { NSWorkspace.shared.open(u) } }
 
     static func google(_ q: String) -> String { "https://www.google.com/search?q=\(enc(q))" }
-    static func x(_ q: String) -> String { "https://x.com/search?q=\(enc(q))" }
 
     // "yt lofi" -> YouTube search for "lofi"
     static let bangs: [(key: String, name: String, symbol: String, url: (String) -> String)] = [
         ("g", "Google", "magnifyingglass", google),
-        ("x", "X", "at", x),
+        ("x", "X", "at", { "https://x.com/search?q=\(enc($0))" }),
         ("yt", "YouTube", "play.rectangle", { "https://www.youtube.com/results?search_query=\(enc($0))" }),
         ("gh", "GitHub", "chevron.left.forwardslash.chevron.right", { "https://github.com/search?q=\(enc($0))" }),
         ("wiki", "Wikipedia", "book", { "https://en.wikipedia.org/w/index.php?search=\(enc($0))" }),
@@ -179,12 +183,7 @@ final class Apps {
     /// Synchronous scan, for command-line checks.
     func refreshNow() { set(Apps.scan()) }
 
-    func refresh() {
-        DispatchQueue.global(qos: .utility).async {
-            let found = Apps.scan()
-            DispatchQueue.main.async { self.set(found) }
-        }
-    }
+    func refresh() { System.background(Apps.scan, qos: .utility) { self.set($0) } }
 
     private func set(_ found: [App]) {
         guard found != all else { return }
@@ -193,31 +192,29 @@ final class Apps {
     }
 
     static func scan() -> [App] {
-        do {
-            let fm = FileManager.default
-            let home = fm.homeDirectoryForCurrentUser.path
-            let roots = ["/Applications", "/System/Applications", "\(home)/Applications",
-                         "/System/Library/CoreServices/Applications"]
-            var seen = Set<String>(), found: [App] = []
-            func add(_ path: String) {
-                guard seen.insert(path).inserted else { return }
-                var name = fm.displayName(atPath: path)
-                if name.hasSuffix(".app") { name = String(name.dropLast(4)) }
-                found.append(App(name: name, path: path))
-            }
-            for root in roots {
-                for entry in (try? fm.contentsOfDirectory(atPath: root)) ?? [] where !entry.hasPrefix(".") {
-                    let path = "\(root)/\(entry)"
-                    if entry.hasSuffix(".app") { add(path); continue }
-                    // One level of folders, e.g. /Applications/Utilities or vendor folders.
-                    for sub in (try? fm.contentsOfDirectory(atPath: path)) ?? [] where sub.hasSuffix(".app") {
-                        add("\(path)/\(sub)")
-                    }
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        let roots = ["/Applications", "/System/Applications", "\(home)/Applications",
+                     "/System/Library/CoreServices/Applications"]
+        var seen = Set<String>(), found: [App] = []
+        func add(_ path: String) {
+            guard seen.insert(path).inserted else { return }
+            var name = fm.displayName(atPath: path)
+            if name.hasSuffix(".app") { name = String(name.dropLast(4)) }
+            found.append(App(name: name, path: path))
+        }
+        for root in roots {
+            for entry in (try? fm.contentsOfDirectory(atPath: root)) ?? [] where !entry.hasPrefix(".") {
+                let path = "\(root)/\(entry)"
+                if entry.hasSuffix(".app") { add(path); continue }
+                // One level of folders, e.g. /Applications/Utilities or vendor folders.
+                for sub in (try? fm.contentsOfDirectory(atPath: path)) ?? [] where sub.hasSuffix(".app") {
+                    add("\(path)/\(sub)")
                 }
             }
-            add("/System/Library/CoreServices/Finder.app")
-            return found
         }
+        add("/System/Library/CoreServices/Finder.app")
+        return found
     }
 }
 
@@ -421,22 +418,11 @@ enum Usage {
         return out
     }
 
-    static func bonus(_ id: String, query: String, now: Double = Date().timeIntervalSince1970,
-                      picks: [String: [String: Double]] = picks, frecency: [String: [Double]] = frecency) -> Double {
-        var b = 0.0
-        if let f = frecency[id] { b += weight * log2(1 + decayed(f[0], since: f[1], now: now)) }
-        let q = query.lowercased()
-        for n in stride(from: q.count, through: 1, by: -1) {
-            guard let m = picks[String(q.prefix(n))], let c = m[id] else { continue }
-            b += 400 * (c / m.values.reduce(0, +)) * (n == q.count ? 1 : 0.5)
-            break
-        }
-        return b
-    }
+    static func bonus(_ id: String, query: String) -> Double { scorer(query: query)(id) }
 
-    /// `bonus` for many items at once: gathers this query's pick history a single time (only the
-    /// prefixes that have any), then scores each item with a few dictionary lookups. Same result as
-    /// `bonus`; used for ranking on every keystroke.
+    /// Usage points for any id, for one query: frecency, plus the share of picks for this query, or
+    /// half that for its longest shorter prefix with any. Gathers the pick history once, so ranking on
+    /// every keystroke costs a few dictionary lookups per item.
     static func scorer(query: String, now: Double = Date().timeIntervalSince1970,
                        picks: [String: [String: Double]] = picks, frecency: [String: [Double]] = frecency) -> (String) -> Double {
         let q = query.lowercased()
@@ -468,18 +454,27 @@ enum Usage {
 }
 
 enum System {
-    static func sh(_ path: String, _ args: [String]) {
+    /// A process for the tool at `path`, not started yet.
+    static func process(_ path: String, _ args: [String]) -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
-        try? p.run()
+        return p
+    }
+
+    static func sh(_ path: String, _ args: [String]) { try? process(path, args).run() }
+
+    /// Runs `work` off the main thread and hands what it returns to `then` on the main thread.
+    static func background<T>(_ work: @escaping () -> T, qos: DispatchQoS.QoSClass = .userInitiated, then: @escaping (T) -> Void) {
+        DispatchQueue.global(qos: qos).async {
+            let result = work()
+            DispatchQueue.main.async { then(result) }
+        }
     }
 
     /// Runs a tool and returns its stdout. Call off the main thread for anything slow.
     static func run(_ path: String, _ args: [String]) -> String {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = args
+        let p = process(path, args)
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
@@ -496,9 +491,7 @@ enum System {
     /// caffeinate -w ties it to our pid, so it can never outlive Hop.
     static func toggleAwake() {
         if awake { caffeinate?.terminate(); caffeinate = nil; return }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-        p.arguments = ["-di", "-w", String(getpid())]
+        let p = process("/usr/bin/caffeinate", ["-di", "-w", String(getpid())])
         try? p.run()
         caffeinate = p
     }

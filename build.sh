@@ -6,6 +6,8 @@
 #                              where it lands (needs Accessibility; takes focus for a few seconds)
 #   ./build.sh dist 0.3.0      release build, signed and notarized, zipped with a checksum, in dist/
 #   ./build.sh release 0.3.0   dist, then tag v0.3.0 and publish the GitHub Release from this Mac
+#   ./build.sh loc [dir]       lines of Swift in Sources/ and tests/ (of dir, default this checkout),
+#                              not counting blank or comment-only lines; the LOC badge shows Sources
 #
 # Dev builds are version "dev", ad-hoc signed, and never update themselves; release builds (dist) ship
 # only Sources/. Releases are signed with the Developer ID in this Mac's keychain (or $HOP_SIGN), so the
@@ -82,6 +84,15 @@ case "$1" in
     git tag "v$2" && git push origin "v$2"
     gh release create "v$2" dist/Hop.zip dist/Hop.zip.sha256 --title "v$2" --generate-notes
     echo "Published v$2." ;;
+  loc)
+    ROOT=${2:-.}
+    total=0
+    for d in Sources tests; do
+      n=$(cat "$ROOT/$d"/*.swift 2>/dev/null | grep -cvE '^[[:space:]]*(//.*)?$' || true)
+      total=$((total + n))
+      printf '%-8s %6d\n' "$d" "$n"
+    done
+    printf '%-8s %6d\n' total "$total" ;;
   "") build ;;
   *) echo "unknown command: $1"; exit 1 ;;
 esac

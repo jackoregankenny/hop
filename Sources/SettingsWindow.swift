@@ -31,16 +31,19 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             pane.reload()
         })]
         hotkeys.recording = { [launcher] on in if on { launcher.suspendHotkeys() } else { launcher.applyConfig() } }
+        /// Writes the rows that are complete under `key`, leaving out empty fields.
+        func saver(_ key: String, _ complete: @escaping ([String: String]) -> Bool) -> ([[String: String]]) -> Void {
+            { [launcher] rows in
+                Config.update(key) { _ in rows.filter(complete).map { $0.filter { !$0.value.isEmpty } } }
+                launcher.applyConfig()
+            }
+        }
 
         let bookmarks = ListPane(columns: [.init(key: "name", title: "Name", width: 190), .init(key: "key", title: "Keyword", width: 80),
                                            .init(key: "url", title: "URL", width: 260)],
                                  note: "Put {query} in a URL to make it a search: type the keyword, a space, then what to search for.")
         bookmarks.load = { [launcher] in launcher.config.quicklinks.map { ["name": $0.name, "key": $0.key ?? "", "url": $0.url] } }
-        bookmarks.save = { [launcher] rows in
-            let list = rows.filter { !($0["name"] ?? "").isEmpty && !($0["url"] ?? "").isEmpty }.map { $0.filter { !$0.value.isEmpty } }
-            Config.update("quicklinks") { _ in list }
-            launcher.applyConfig()
-        }
+        bookmarks.save = saver("quicklinks") { !($0["name"] ?? "").isEmpty && !($0["url"] ?? "").isEmpty }
         bookmarks.extra = [("Add Current Page", { [launcher] pane in
             if Tabs.saveFront() != nil { launcher.applyConfig(); pane.reload() } else { pane.flash("No new page found in an open browser window") }
         })]
@@ -48,12 +51,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         let snippets = ListPane(columns: [.init(key: "name", title: "Name", width: 260), .init(key: "keyword", title: "Keyword", width: 120)],
                                 note: "Placeholders: {date} {time} {datetime} {clipboard}", detail: "text")
         snippets.load = { [launcher] in launcher.config.snippets.map { ["name": $0.name, "keyword": $0.keyword ?? "", "text": $0.text] } }
-        snippets.save = { [launcher] rows in
-            let list = rows.filter { !($0["text"] ?? "").isEmpty && !(($0["name"] ?? "") + ($0["keyword"] ?? "")).isEmpty }
-                .map { $0.filter { !$0.value.isEmpty } }
-            Config.update("snippets") { _ in list }
-            launcher.applyConfig()
-        }
+        snippets.save = saver("snippets") { !($0["text"] ?? "").isEmpty && !(($0["name"] ?? "") + ($0["keyword"] ?? "")).isEmpty }
         snippets.extra = [("Add Clipboard", { [launcher] pane in
             if Snippet.saveClipboard() { launcher.applyConfig(); pane.reload() } else { pane.flash("The clipboard has no text") }
         })]
@@ -142,21 +140,13 @@ final class GeneralPane: NSViewController {
     required init?(coder: NSCoder) { fatalError() }
 
     override func loadView() {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 28, bottom: 20, right: 28)
+        let stack = NSStackView.column([], spacing: 6, insets: NSEdgeInsets(top: 20, left: 28, bottom: 20, right: 28))
         for f in Feature.allCases {
-            let b = NSButton(checkboxWithTitle: f.title, target: self, action: #selector(toggled(_:)))
-            let d = NSTextField(labelWithString: f.detail)
+            let b = NSButton(checkboxWithTitle: f.text.title, target: self, action: #selector(toggled(_:)))
+            let d = NSTextField(labelWithString: f.text.detail)
             d.textColor = .secondaryLabelColor
             d.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            let row = NSStackView(views: [b, d])
-            row.orientation = .vertical
-            row.alignment = .leading
-            row.spacing = 1
-            stack.addArrangedSubview(row)
+            stack.addArrangedSubview(NSStackView.column([b, d], spacing: 1))
             boxes.append((f, b))
         }
         login.target = self
@@ -171,21 +161,9 @@ final class GeneralPane: NSViewController {
         stack.addArrangedSubview(theme)
         stack.setCustomSpacing(18, after: theme)
 
-        let files = NSStackView(views: [
-            button("Open config.json") { Config.edit() },
-            button("Open Scripts Folder") {
-                try? FileManager.default.createDirectory(atPath: Config.scriptsDir, withIntermediateDirectories: true)
-                NSWorkspace.shared.open(URL(fileURLWithPath: Config.scriptsDir))
-            },
-        ])
-        stack.addArrangedSubview(files)
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 400))
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        v.addSubview(stack)   // pinned to the top, not stretched over the whole tab
-        NSLayoutConstraint.activate([stack.topAnchor.constraint(equalTo: v.topAnchor), stack.leadingAnchor.constraint(equalTo: v.leadingAnchor),
-                                     stack.trailingAnchor.constraint(equalTo: v.trailingAnchor),
-                                     stack.bottomAnchor.constraint(lessThanOrEqualTo: v.bottomAnchor)])
-        view = v
+        stack.addArrangedSubview(NSStackView(views: [button("Open config.json") { Config.edit() },
+                                                     button("Open Scripts Folder") { Config.openScripts() }]))
+        view = .page(stack, fill: false)   // pinned to the top, not stretched over the whole tab
     }
 
     func reload() {
@@ -199,8 +177,7 @@ final class GeneralPane: NSViewController {
 
     /// The theme as written in config.json, always as an object.
     private func rawTheme() -> [String: Any] {
-        let obj = FileManager.default.contents(atPath: Config.path).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        switch obj?["theme"] {
+        switch Config.raw()?["theme"] {
         case let s as String: return ["preset": s]
         case let d as [String: Any]: return d
         default: return [:]
@@ -272,7 +249,6 @@ final class ListPane: NSViewController, NSTableViewDataSource, NSTableViewDelega
     required init?(coder: NSCoder) { fatalError() }
 
     override func loadView() {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 400))
         for c in columns {
             let col = NSTableColumn(identifier: .init(c.key))
             col.title = c.title
@@ -324,17 +300,9 @@ final class ListPane: NSViewController, NSTableViewDataSource, NSTableViewDelega
             views.append(ts)
         }
         views.append(noteLabel)
-        let stack = NSStackView(views: views)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+        let stack = NSStackView.column(views, spacing: 8, insets: NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20))
         for w in views where w !== barStack { w.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true }
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        v.addSubview(stack)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: v.leadingAnchor), stack.trailingAnchor.constraint(equalTo: v.trailingAnchor),
-                                     stack.topAnchor.constraint(equalTo: v.topAnchor), stack.bottomAnchor.constraint(equalTo: v.bottomAnchor)])
-        view = v
+        view = .page(stack, fill: true)
         showDetail()
     }
 
@@ -519,5 +487,30 @@ final class KeyRecorder: NSButton {
     override func resignFirstResponder() -> Bool {
         stop()
         return super.resignFirstResponder()
+    }
+}
+
+extension NSStackView {
+    /// A vertical stack, left-aligned.
+    static func column(_ views: [NSView], spacing: CGFloat, insets: NSEdgeInsets = NSEdgeInsets()) -> NSStackView {
+        let s = NSStackView(views: views)
+        s.orientation = .vertical
+        s.alignment = .leading
+        s.spacing = spacing
+        s.edgeInsets = insets
+        return s
+    }
+}
+
+extension NSView {
+    /// A settings tab holding `content` along its top and sides; `fill` stretches it to the bottom too.
+    static func page(_ content: NSView, fill: Bool) -> NSView {
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 400))
+        content.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(content)
+        let bottom = fill ? content.bottomAnchor.constraint(equalTo: v.bottomAnchor) : content.bottomAnchor.constraint(lessThanOrEqualTo: v.bottomAnchor)
+        NSLayoutConstraint.activate([content.topAnchor.constraint(equalTo: v.topAnchor), content.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+                                     content.trailingAnchor.constraint(equalTo: v.trailingAnchor), bottom])
+        return v
     }
 }
