@@ -179,11 +179,16 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         applyTheme()
         apps.refresh()
         watch = ConfigWatch { [weak self] in self?.applyConfig() }
+        apps.onChange = { [weak self] in
+            self?.sourcesChanged()
+            self?.prewarmIcons()
+        }
+        DispatchQueue.global(qos: .utility).async { _ = Audio.devices() }   // warm CoreAudio before the first open
     }
 
     /// Lowercased names a hotkey can run, for `hop --check`.
     func knownActions() -> Set<String> {
-        Set(pool(query: "").compactMap { $0.names.first?.lowercased() })
+        Set(pool().compactMap { $0.names.first?.lowercased() })
             .union(Snap.actionNames.map { $0.lowercased() }).union(["show", "clipboard history"])
     }
 
@@ -297,6 +302,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
 
     func applyConfig() {
         config = Config.load()
+        sourcesChanged()
         if config.theme != Launcher.theme { Launcher.theme = config.theme; applyTheme() }
         snapper.gap = config.snapGap
         clipboard.enabled = Feature.clipboardHistory.isOn
@@ -316,18 +322,22 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         let a = action.lowercased()
         if a == "show" { toggle(); return }
         if a == "clipboard history" { show(query: "clip "); return }
-        if let entry = pool(query: "").first(where: { $0.item.title.lowercased() == a || $0.names.first?.lowercased() == a }) {
+        if let entry = pool().first(where: { $0.item.title.lowercased() == a || $0.names.first?.lowercased() == a }) {
             entry.item.action()
         }
     }
 
     // MARK: sources loaded when the panel opens
 
-    private func loadSources() {
+    func loadSources() {
+        sourcesChanged()
         output = nil
         tabs = []
         tabsLoaded = false
-        audio = Audio.devices()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let devices = Audio.devices()   // CoreAudio can take ~100 ms the first time
+            DispatchQueue.main.async { self?.audio = devices; self?.sourcesChanged() }
+        }
         scripts = Script.load()
         running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != getpid() }
         let front = NSWorkspace.shared.frontmostApplication
@@ -342,6 +352,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                 DispatchQueue.main.async {
                     self?.menus = m
                     self?.windows = w
+                    self?.sourcesChanged()
                     if self?.query.isEmpty == false { self?.rebuild(keepSelection: true) }
                 }
             }
@@ -350,7 +361,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             shortcutsLoaded = Date()
             DispatchQueue.global(qos: .utility).async {
                 let list = Shortcuts.list()
-                DispatchQueue.main.async { self.shortcuts = list }
+                DispatchQueue.main.async { self.shortcuts = list; self.sourcesChanged() }
             }
         }
     }
@@ -363,6 +374,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             let t = Tabs.read()
             DispatchQueue.main.async {
                 self?.tabs = t
+                self?.sourcesChanged()
                 if self?.query.isEmpty == false { self?.rebuild(keepSelection: true) }
             }
         }
@@ -501,7 +513,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                     action: { clipboard.copy(value) }, alt: { Paste.paste(value, clipboard) })
     }
 
-    private func compose(_ q: String) -> [Item] {
+    func compose(_ q: String) -> [Item] {
         if let o = output { return outputItems(o) }
         if q.isEmpty { return [] }
         if isClipQuery(q) { return clipItems(q) }
@@ -546,9 +558,10 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             out.append(Item(id: "url", title: "Open \(q)", subtitle: url, icon: .symbol("safari"), action: { Web.open(url) }))
         }
 
-        let scored = pool(query: q).compactMap { e -> (Double, Item, Bool)? in
-            guard let s = e.score(q) else { return nil }
-            return (s + e.base + Usage.bonus(e.item.id, query: q), e.item, e.minor)
+        let lq = q.lowercased(), usage = Usage.scorer(query: q)
+        let scored = pool().compactMap { e -> (Double, Item, Bool)? in
+            guard !(e.minor && q.count < 2), let s = e.score(lq) else { return nil }
+            return (s + e.base + usage(e.item.id), e.item, e.minor)
         }.sorted { $0.0 > $1.0 }
         let top = scored.first?.0 ?? 0
         let ranked = scored.filter { !$0.2 || $0.0 >= top - 250 }.map { ($0.0, $0.1) }
@@ -611,15 +624,18 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     /// a real name ("System Settings"). Snippet keywords and quicklink keys are triggers you chose: 1.
     private struct Entry {
         let names: [String], base: Double, item: Item, loose: Bool, aliasWeight: Double
+        let keys: [Match.Key]   // names prepared once, not on every keystroke
         /// Only shown when it is close to the best match (menu items of the front app): "slack" should
         /// not list Hide Slack, Quit Slack and About Slack under the Slack app itself.
         var minor = false
         init(names: [String], base: Double, aliasWeight: Double = 0.7, item: Item, loose: Bool = false) {
             self.names = names; self.base = base; self.item = item; self.loose = loose; self.aliasWeight = aliasWeight
+            keys = names.map(Match.Key.init)
         }
+        /// `q` already lowercased.
         func score(_ q: String) -> Double? {
-            names.enumerated().compactMap { i, n in
-                Match.score(q, n, loose: loose).map { i == 0 ? $0 : $0 * aliasWeight }
+            keys.enumerated().compactMap { i, k in
+                Match.score(lowered: q, k, loose: loose).map { i == 0 ? $0 : $0 * aliasWeight }
             }.max()
         }
     }
@@ -629,7 +645,19 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         "Save Clipboard as Snippet", "Open Scripts Folder", "Reload Apps", "Quit Hop", "Grant Accessibility Access",
         "Launch Hop at Login", "Don't Launch Hop at Login"]
 
-    private func pool(query q: String) -> [Entry] {
+    /// Everything matched by name, built once per panel open (or when a source changes) rather than
+    /// on every keystroke.
+    private var poolCache: [Entry]?
+    private func pool() -> [Entry] {
+        if let p = poolCache { return p }
+        let p = buildPool()
+        poolCache = p
+        return p
+    }
+    /// Something the candidate list is built from changed.
+    private func sourcesChanged() { poolCache = nil }
+
+    private func buildPool() -> [Entry] {
         var out: [Entry] = []
         let runningPaths = Set(running.compactMap { $0.bundleURL?.path })
         var indexed = Set<String>()
@@ -699,15 +727,14 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                                         icon: t.appPath.map { .file($0) } ?? .symbol("globe"), action: { Tabs.focus(t) },
                                         alt: { [clipboard] in clipboard.copy(t.url) })))
         }
-        if q.count >= 2 {   // menu items only once there is something to match; there can be hundreds
-            for m in menus {
-                // Menu items of whatever app is in front: handy, but never ahead of an app or setting.
-                var e = Entry(names: [m.title], base: -170,
-                              item: Item(id: "menu:\(m.path):\(m.title)", title: m.title, subtitle: m.path,
-                                         icon: .symbol("filemenu.and.selection"), action: { Menus.press(m) }))
-                e.minor = true
-                out.append(e)
-            }
+        for m in menus {
+            // Menu items of whatever app is in front: handy, but never ahead of an app or setting,
+            // and only once there are two letters to match (there can be hundreds).
+            var e = Entry(names: [m.title], base: -170,
+                          item: Item(id: "menu:\(m.path):\(m.title)", title: m.title, subtitle: m.path,
+                                     icon: .symbol("filemenu.and.selection"), action: { Menus.press(m) }))
+            e.minor = true
+            out.append(e)
         }
         return out
     }
@@ -905,7 +932,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         var sub = item.subtitle
         if sub == kind { sub = "" } else if sub.hasPrefix(kind + " · ") { sub = String(sub.dropFirst(kind.count + 3)) }
         cell.sub.stringValue = sub
-        cell.icon.image = Icons.image(item.icon)
+        let id = item.id
+        cell.icon.image = Icons.image(item.icon) { [weak self] in self?.iconArrived(id) }
         cell.hint.stringValue = kind
         cell.apply(Launcher.theme)
         cell.needsLayout = true
@@ -913,6 +941,24 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     func tableViewSelectionDidChange(_ n: Notification) { updateFooter() }
+
+    /// Pre-loads the icons you are likely to see: running apps and your most used ones (at most 40).
+    /// Everything else loads on demand, still off the main thread; preloading every installed app
+    /// would cost about 9 MB for icons that rarely show.
+    private func prewarmIcons() {
+        let usage = Usage.scorer(query: "")
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleURL?.path })
+        let likely = apps.all.map(\.path).filter { running.contains($0) || usage($0) > 0 }
+            .sorted { usage($0) > usage($1) }.prefix(40)
+        Icons.prewarm(Array(likely) + ["/System/Applications/System Settings.app"])
+    }
+
+    /// An icon finished loading in the background: put it in its row if that row is still showing.
+    private func iconArrived(_ id: String) {
+        guard let r = items.firstIndex(where: { $0.id == id }),
+              let cell = table.view(atColumn: 0, row: r, makeIfNecessary: false) as? Cell else { return }
+        cell.icon.image = Icons.image(items[r].icon)
+    }
 
     /// What a row is and what ↵ / ⌘↵ do, derived from its id so items stay plain data.
     static func describe(_ item: Item) -> (kind: String, verb: String, alt: String?) {

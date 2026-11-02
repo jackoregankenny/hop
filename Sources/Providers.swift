@@ -13,18 +13,31 @@ struct Item {
     var alt: (() -> Void)? = nil        // ⌘↵
 }
 
+/// Icons, loaded off the main thread. NSWorkspace hands back lazy images whose real decoding
+/// happens at first draw (18 ms each when macOS's own cache is cold), so file icons are fetched
+/// *and drawn* into a small bitmap on a background queue; rows show them as they arrive.
 enum Icons {
-    private static var cache: [String: NSImage] = [:]
-    static func image(_ icon: Item.Icon) -> NSImage? {
+    private static var cache: [String: NSImage] = [:]          // main thread only
+    private static var waiting: [String: [() -> Void]] = [:]   // main thread only
+    private static var loading = Set<String>()                 // main thread only
+    private static let urgent = DispatchQueue(label: "hop.icons", qos: .userInitiated)
+    private static let idle = DispatchQueue(label: "hop.icons.prewarm", qos: .utility)
+    static let points: CGFloat = 36                            // the largest a row draws them
+
+    /// The icon if it is ready; otherwise nil, with `ready` called on the main thread once it is.
+    static func image(_ icon: Item.Icon, ready: (() -> Void)? = nil) -> NSImage? {
         switch icon {
         case .file(let path):
             if let img = cache[path] { return img }
-            let img = NSWorkspace.shared.icon(forFile: path)
-            cache[path] = img
-            return img
+            if let ready { waiting[path, default: []].append(ready) }
+            load(path, on: urgent)
+            return nil
         case .symbol(let name):
-            return NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            if let img = cache["s:" + name] { return img }
+            let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
+            cache["s:" + name] = img
+            return img
         case .text(let t):
             if let img = cache["t:" + t] { return img }
             let img = NSImage(size: NSSize(width: 28, height: 28), flipped: false) { r in
@@ -36,6 +49,38 @@ enum Icons {
             cache["t:" + t] = img
             return img
         }
+    }
+
+    /// Loads icons ahead of time at low priority, so they are ready before anyone types.
+    static func prewarm(_ paths: [String]) {
+        for p in paths where cache[p] == nil { load(p, on: idle) }
+    }
+
+    private static func load(_ path: String, on queue: DispatchQueue) {
+        guard loading.insert(path).inserted else { return }
+        queue.async {
+            let img = render(path)
+            DispatchQueue.main.async {
+                cache[path] = img
+                loading.remove(path)
+                waiting.removeValue(forKey: path)?.forEach { $0() }
+            }
+        }
+    }
+
+    /// Draws the icon once into a 2x bitmap, so later draws are a plain image copy.
+    private static func render(_ path: String) -> NSImage {
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        let px = Int(points * 2)
+        guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return icon }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        icon.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let cg = ctx.makeImage() else { return icon }
+        return NSImage(cgImage: cg, size: NSSize(width: points, height: points))
     }
 }
 
@@ -87,17 +132,24 @@ enum Web {
 }
 
 final class Apps {
-    struct App { let name: String; let path: String }
+    struct App: Equatable { let name: String; let path: String }
     private(set) var all: [App] = []
+    var onChange: (() -> Void)?
 
     /// Synchronous scan, for command-line checks.
-    func refreshNow() { all = Apps.scan() }
+    func refreshNow() { set(Apps.scan()) }
 
     func refresh() {
         DispatchQueue.global(qos: .utility).async {
             let found = Apps.scan()
-            DispatchQueue.main.async { self.all = found }
+            DispatchQueue.main.async { self.set(found) }
         }
+    }
+
+    private func set(_ found: [App]) {
+        guard found != all else { return }
+        all = found
+        onChange?()
     }
 
     static func scan() -> [App] {
@@ -272,7 +324,8 @@ enum Usage {
         return out
     }
 
-    static func bonus(_ id: String, query: String, now: Double = Date().timeIntervalSince1970) -> Double {
+    static func bonus(_ id: String, query: String, now: Double = Date().timeIntervalSince1970,
+                      picks: [String: [String: Double]] = picks, frecency: [String: [Double]] = frecency) -> Double {
         var b = 0.0
         if let f = frecency[id] { b += 45 * log2(1 + decayed(f[0], since: f[1], now: now)) }
         let q = query.lowercased()
@@ -282,6 +335,25 @@ enum Usage {
             break
         }
         return b
+    }
+
+    /// `bonus` for many items at once: gathers this query's pick history a single time (only the
+    /// prefixes that have any), then scores each item with a few dictionary lookups. Same result as
+    /// `bonus`; used for ranking on every keystroke.
+    static func scorer(query: String, now: Double = Date().timeIntervalSince1970,
+                       picks: [String: [String: Double]] = picks, frecency: [String: [Double]] = frecency) -> (String) -> Double {
+        let q = query.lowercased()
+        let history: [(picks: [String: Double], total: Double, weight: Double)] =
+            stride(from: q.count, through: 1, by: -1).compactMap { n in
+                picks[String(q.prefix(n))].map { ($0, $0.values.reduce(0, +), n == q.count ? 1 : 0.5) }
+            }
+        let f = frecency
+        return { id in
+            var b = 0.0
+            if let e = f[id] { b += 45 * log2(1 + decayed(e[0], since: e[1], now: now)) }
+            if let h = history.first(where: { $0.picks[id] != nil }) { b += 400 * (h.picks[id]! / h.total) * h.weight }
+            return b
+        }
     }
 
     static func bump(_ id: String, query: String) {

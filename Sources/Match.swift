@@ -24,29 +24,40 @@ enum Match {
         String(words(s).compactMap(\.first))
     }
 
+    /// A name prepared once for matching, so typing does not re-derive its words on every keystroke.
+    struct Key {
+        let lower: String, words: [String], initials: String, count: Int
+        init(_ name: String) {
+            lower = name.lowercased()
+            words = Match.words(name)
+            initials = String(words.compactMap(\.first))
+            count = lower.count
+        }
+    }
+
     /// Returns nil when there is no match. Higher is better. `loose` allows scattered-letter
     /// (subsequence) matches, which suit short app names but are noise on long command or menu titles.
     static func score(_ query: String, _ name: String, loose: Bool = true) -> Double? {
-        let q = query.lowercased()
-        let n = name.lowercased()
+        score(lowered: query.lowercased(), Key(name), loose: loose)
+    }
+
+    static func score(lowered q: String, _ k: Key, loose: Bool = true) -> Double? {
+        let n = k.lower, ws = k.words, ini = k.initials, qn = q.count
         if q.isEmpty { return nil }
         if n == q { return 1000 }
-        if n.hasPrefix(q) { return 900 - Double(n.count - q.count) }
-        let ws = words(name)
-        let ini = String(ws.compactMap(\.first))
-        if q.count >= 2 && ini.hasPrefix(q) { return 820 - Double(ini.count - q.count) }
-        if ws.dropFirst().contains(where: { $0.hasPrefix(q) }) { return 760 - Double(n.count) * 0.5 }
-        if n.contains(q) { return 650 - Double(n.count) * 0.5 }
+        if n.hasPrefix(q) { return 900 - Double(k.count - qn) }
+        if qn >= 2 && ini.hasPrefix(q) { return 820 - Double(ini.count - qn) }
+        if ws.dropFirst().contains(where: { $0.hasPrefix(q) }) { return 760 - Double(k.count) * 0.5 }
+        if n.contains(q) { return 650 - Double(k.count) * 0.5 }
         if loose, let s = subsequence(q, n, ws) { return s }
-        let allowed = q.count <= 3 ? 0 : (q.count <= 6 ? 1 : 2)
+        let allowed = qn <= 3 ? 0 : (qn <= 6 ? 1 : 2)
         if allowed > 0 {
             var best = Int.max
             for cand in [n] + ws {
-                let prefix = String(cand.prefix(q.count))
-                best = min(best, osa(q, prefix))
-                if cand.count > q.count { best = min(best, osa(q, String(cand.prefix(q.count + 1)))) }
+                best = min(best, osa(q, String(cand.prefix(qn))))
+                if cand.count > qn { best = min(best, osa(q, String(cand.prefix(qn + 1)))) }
             }
-            if best <= allowed { return 300 - Double(best) * 60 - Double(n.count) * 0.3 }
+            if best <= allowed { return 300 - Double(best) * 60 - Double(k.count) * 0.3 }
         }
         return nil
     }

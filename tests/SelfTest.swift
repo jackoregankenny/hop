@@ -157,6 +157,16 @@ enum SelfTest {
         check(!Updater.isNewer("0.2.0", than: "0.2.0") && !Updater.isNewer("0.1.9", than: "0.2"), "same or older is not newer")
         check(Updater.isNewer("1.0", than: "0.9.9.9"), "missing parts count as zero")
 
+        // The fast scorer must rank exactly like bonus, prefix fallback included.
+        // Literal data, so nothing is written to Hop's preferences.
+        let p: [String: [String: Double]] = ["sl": ["slack": 3], "s": ["spotify": 1, "slack": 1]]
+        let fr: [String: [Double]] = ["slack": [4, 0], "safari": [2, 0]]
+        let fast = Usage.scorer(query: "sl", now: 86_400, picks: p, frecency: fr)
+        check(["slack", "spotify", "safari", "none"].allSatisfy {
+            abs(fast($0) - Usage.bonus($0, query: "sl", now: 86_400, picks: p, frecency: fr)) < 0.001
+        }, "fast usage scorer matches bonus, prefix fallback included")
+        check(fast("spotify") > 0, "an item picked only for a shorter prefix still gets credit")
+
         // Snippets
         let sn = Snippet.parse([["name": "Link", "keyword": "MDL", "text": "[x]({clipboard}) on {date}"], ["text": "no name"]])
         check(sn.count == 1 && sn[0].keyword == "mdl", "snippet parse: needs a name or keyword, keyword lowercased")
