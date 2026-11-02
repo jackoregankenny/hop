@@ -4,7 +4,7 @@ if CommandLine.arguments.contains("--selftest") { SelfTest.run() }
 
 // --update-now checks GitHub Releases and installs over this copy without restarting (for testing updates).
 if CommandLine.arguments.contains("--update-now") {
-    let u = Updater(app: "Rayfast")
+    let u = Updater(app: "Hop")
     print("current:", u.current, "· repo:", u.repo.isEmpty ? "none" : u.repo)
     var finished = false
     u.check(install: true, relaunch: false) { finished = true }
@@ -13,7 +13,7 @@ if CommandLine.arguments.contains("--update-now") {
     exit(0)
 }
 
-// --probe reports what Rayfast can see on this Mac without changing anything.
+// --probe reports what Hop can see on this Mac without changing anything.
 if CommandLine.arguments.contains("--probe") {
     print("accessibility trusted:", AXIsProcessTrusted())
     print("windows on this Space:", WindowCore.windows().count, "· focused:", WindowCore.focused()?.appName ?? "none")
@@ -30,16 +30,16 @@ if CommandLine.arguments.contains("--probe") {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var launcher: Launcher!
     var status: NSStatusItem!
-    let updater = Updater(app: "Rayfast")
+    let updater = Updater(app: "Hop")
 
     func applicationDidFinishLaunching(_ n: Notification) {
         launcher = Launcher()
-        // Hotkeys come from ~/.config/rayfast/config.json on top of the defaults (⌥Space, ⌘Space, snapping).
+        // Hotkeys come from ~/.config/hop/config.json on top of the defaults (⌥Space, ⌘Space, snapping).
         // ⌘Space only fires once Spotlight's shortcut is turned off.
         launcher.applyConfig()
 
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        status.button?.image = NSImage(systemSymbolName: "bolt.horizontal", accessibilityDescription: "Rayfast")
+        status.button?.image = NSImage(systemSymbolName: "bolt.horizontal", accessibilityDescription: "Hop")
         let menu = NSMenu()
         menu.delegate = self
         status.menu = menu
@@ -96,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         actions = []
         let show = launcher.activeHotkeys.first { $0.action == "show" }.map { "  " + HotKeys.symbols($0.combo) } ?? ""
-        add(menu, "Open Rayfast" + show) { [weak self] in self?.launcher.show() }
+        add(menu, "Open Hop" + show) { [weak self] in self?.launcher.show() }
         menu.addItem(.separator())
 
         for f in Feature.allCases {
@@ -111,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let keys = NSMenu()
         for (combo, action) in launcher.activeHotkeys.sorted(by: { $0.action < $1.action }) {
-            add(keys, "\(HotKeys.symbols(combo))\t\(action == "show" ? "Open Rayfast" : action)", enabled: false) {}
+            add(keys, "\(HotKeys.symbols(combo))\t\(action == "show" ? "Open Hop" : action)", enabled: false) {}
         }
         if launcher.activeHotkeys.isEmpty { add(keys, "No hotkeys", enabled: false) {} }
         keys.addItem(.separator())
@@ -142,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add(menu, "Reload Config") { [weak self] in self?.launcher.applyConfig() }
         menu.addItem(.separator())
         add(menu, updater.menuTitle, enabled: updater.enabled) { [weak self] in self?.updater.check(install: true) }
-        add(menu, "Quit Rayfast") { NSApp.terminate(nil) }
+        add(menu, "Quit Hop") { NSApp.terminate(nil) }
     }
 
     private func add(_ menu: NSMenu, _ title: String, on: Bool = false, enabled: Bool = true, tip: String? = nil,

@@ -1,6 +1,6 @@
 import AppKit
 
-/// ~/.config/rayfast/config.json (or $RAYFAST_HOME). Everything is optional.
+/// ~/.config/hop/config.json (or $HOP_HOME). Everything is optional.
 struct Config {
     struct Quicklink { let name: String; let url: String; let key: String? }
 
@@ -18,7 +18,7 @@ struct Config {
     }
 
     static var dir: String {
-        ProcessInfo.processInfo.environment["RAYFAST_HOME"] ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/rayfast")
+        ProcessInfo.processInfo.environment["HOP_HOME"] ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/hop")
     }
     static var path: String { (dir as NSString).appendingPathComponent("config.json") }
     static var scriptsDir: String { (dir as NSString).appendingPathComponent("scripts") }
@@ -71,9 +71,9 @@ struct Config {
     """
 }
 
-/// Script commands: executables in ~/.config/rayfast/scripts with metadata comments.
+/// Script commands: executables in ~/.config/hop/scripts with metadata comments.
 /// Raycast's script-command headers (@raycast.title, .mode, .icon, .argument1) are read as-is,
-/// so scripts written for it run here unchanged; @rayfast.* works too.
+/// so scripts written for it run here unchanged; @hop.* works too.
 struct Script {
     let path: String
     let title: String

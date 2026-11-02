@@ -1,5 +1,5 @@
-# Pushing a tag like v0.3.0 builds both apps, runs the self-tests and publishes a GitHub Release
-# with Rayfast.zip, Tiles.zip and their SHA-256 checksums. The apps update from these releases.
+# Pushing a tag like v0.3.0 builds Hop, runs the self-test and publishes a GitHub Release
+# with Hop.zip and its SHA-256 checksum. The app updates from these releases.
 name: Release
 
 on:

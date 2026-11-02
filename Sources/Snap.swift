@@ -1,6 +1,6 @@
 import AppKit
 
-/// One-shot window placement for the focused window. Tiling lives in the separate Tiles app.
+/// One-shot window placement for the focused window. For tiling, see Tiles (github.com/jackoregankenny/tiles).
 enum Snap {
     /// `area` is the screen's visible frame (inset by gap/2), `current` the window, both in Cocoa coordinates.
     typealias Place = (_ area: CGRect, _ current: CGRect) -> CGRect

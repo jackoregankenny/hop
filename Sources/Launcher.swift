@@ -543,7 +543,9 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             }
             if out.count < (menusExpanded ? 14 : 8) { out.append(item) }
         }
-        if let at = menuRow, !extraMenus.isEmpty {
+        if let at = menuRow, extraMenus.count == 1 {
+            out.insert(extraMenus[0], at: at + 1)   // folding one item into a row saves nothing
+        } else if let at = menuRow, !extraMenus.isEmpty {
             let app = out[at].subtitle.components(separatedBy: " › ").first ?? "app"
             out.insert(Item(id: "menu-more", title: "\(extraMenus.count) more in \(app) menus",
                             subtitle: extraMenus.map(\.title).joined(separator: " · "),
@@ -572,7 +574,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     // MARK: the ranked pool: everything that is matched by name
 
     /// names[0] is the real name; the rest are keywords that help find it. Keyword matches count at
-    /// `aliasWeight`, so even an exact keyword ("settings" on Rayfast Settings) lands below a word of
+    /// `aliasWeight`, so even an exact keyword ("settings" on Hop Settings) lands below a word of
     /// a real name ("System Settings"). Snippet keywords and quicklink keys are triggers you chose: 1.
     private struct Entry {
         let names: [String], base: Double, item: Item, loose: Bool, aliasWeight: Double
@@ -589,10 +591,10 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         }
     }
 
-    /// Rayfast's own housekeeping; ranked below everything you actually came to open.
-    private static let housekeeping: Set<String> = ["Rayfast Settings", "Edit Rayfast Config", "Reload Rayfast Config",
-        "Save Clipboard as Snippet", "Open Scripts Folder", "Reload Apps", "Quit Rayfast", "Grant Accessibility Access",
-        "Launch Rayfast at Login", "Don't Launch Rayfast at Login"]
+    /// Hop's own housekeeping; ranked below everything you actually came to open.
+    private static let housekeeping: Set<String> = ["Hop Settings", "Edit Hop Config", "Reload Hop Config",
+        "Save Clipboard as Snippet", "Open Scripts Folder", "Reload Apps", "Quit Hop", "Grant Accessibility Access",
+        "Launch Hop at Login", "Don't Launch Hop at Login"]
 
     private func pool(query q: String) -> [Entry] {
         var out: [Entry] = []
@@ -722,7 +724,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     private func clipItems(_ q: String) -> [Item] {
         let filter = q.split(separator: " ", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
         guard clipboard.enabled else {
-            return [Item(id: "clip-off", title: "Clipboard History is off", subtitle: "Turn it on in Rayfast Settings",
+            return [Item(id: "clip-off", title: "Clipboard History is off", subtitle: "Turn it on in Hop Settings",
                          icon: .symbol("doc.on.clipboard"), action: { [weak self] in self?.onOpenSettings?() })]
         }
         let list = clipboard.items.filter { filter.isEmpty || $0.localizedCaseInsensitiveContains(filter) }
@@ -804,7 +806,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                 System.script("set volume output muted not (output muted of (get volume settings))")
             },
             cmd(System.awake ? "Stop Keeping Awake" : "Keep Awake", ["caffeinate", "awake", "no sleep", "amphetamine"],
-                "cup.and.saucer", System.awake ? "On · stops when Rayfast quits" : "Stops the Mac and display sleeping") { System.toggleAwake() },
+                "cup.and.saucer", System.awake ? "On · stops when Hop quits" : "Stops the Mac and display sleeping") { System.toggleAwake() },
             cmd("Lock Screen", ["lock"], "lock") { System.lock() },
             cmd("Sleep", ["sleep"], "moon") { System.sh("/usr/bin/pmset", ["sleepnow"]) },
             cmd("Sleep Displays", ["display off", "screen off"], "display") { System.sh("/usr/bin/pmset", ["displaysleepnow"]) },
@@ -834,28 +836,28 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             folder("Desktop", .desktopDirectory),
             folder("Documents", .documentDirectory),
             folder("Home", .userDirectory),
-            cmd("Rayfast Settings", ["settings", "preferences", "turn off", "disable"], "switch.2", "Features, hotkeys, snippets") {
+            cmd("Hop Settings", ["settings", "preferences", "turn off", "disable"], "switch.2", "Features, hotkeys, snippets") {
                 [weak self] in self?.onOpenSettings?()
             },
-            cmd("Edit Rayfast Config", ["hotkeys", "snippets", "config"], "gearshape", Config.path) { Config.edit() },
+            cmd("Edit Hop Config", ["hotkeys", "snippets", "config"], "gearshape", Config.path) { Config.edit() },
             cmd("Save Clipboard as Snippet", ["snippet", "new snippet"], "text.badge.plus", "Adds it to config.json") {
                 [weak self] in
                 guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
                 Snippet.save(text)
                 self?.applyConfig()
             },
-            cmd("Reload Rayfast Config", ["refresh", "reload"], "arrow.triangle.2.circlepath", "Hotkeys, quicklinks, scripts") {
+            cmd("Reload Hop Config", ["refresh", "reload"], "arrow.triangle.2.circlepath", "Hotkeys, quicklinks, scripts") {
                 [weak self] in self?.applyConfig()
             },
             cmd("Open Scripts Folder", ["plugins", "extensions", "script commands"], "terminal", Config.scriptsDir) {
                 try? FileManager.default.createDirectory(atPath: Config.scriptsDir, withIntermediateDirectories: true)
                 NSWorkspace.shared.open(URL(fileURLWithPath: Config.scriptsDir))
             },
-            cmd(login ? "Don't Launch Rayfast at Login" : "Launch Rayfast at Login", ["startup", "login"], "power.circle") {
+            cmd(login ? "Don't Launch Hop at Login" : "Launch Hop at Login", ["startup", "login"], "power.circle") {
                 System.launchAtLogin = !login
             },
             cmd("Reload Apps", ["reindex"], "arrow.triangle.2.circlepath", "Rescan /Applications") { [apps] in apps.refresh() },
-            cmd("Quit Rayfast", ["exit"], "xmark.circle") { NSApp.terminate(nil) },
+            cmd("Quit Hop", ["exit"], "xmark.circle") { NSApp.terminate(nil) },
         ]
         if !AXIsProcessTrusted() {
             list.append(cmd("Grant Accessibility Access", ["permissions", "windows", "menus", "paste"], "hand.raised",

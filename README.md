@@ -1,43 +1,38 @@
-# Rayfast + Tiles
+# Hop
 
-Two small macOS apps in plain Swift + AppKit, no dependencies, no runtime:
+A ⌘Space launcher for macOS in plain Swift + AppKit: about 500 KB, no dependencies, no runtime.
+It reaches into what macOS already exposes (Accessibility, CoreAudio, IOBluetooth, IOKit,
+Dictionary Services, Spotlight, Apple Events, the `shortcuts` CLI) instead of shipping its own.
 
-- **Rayfast** (~480 KB): a ⌘Space launcher with snippets, themes and optional window snapping.
-- **Tiles** (~170 KB): a tiling window manager that lives in the menu bar.
-
-They share window and hotkey code (`Sources/Shared`) but run independently.
+Looking for tiling? That's a separate app: [Tiles](https://github.com/jackoregankenny/tiles).
 
 ## Install
 
-Download `Rayfast.zip` and/or `Tiles.zip` from the
-[latest release](https://github.com/jackoregankenny/rayfast/releases/latest), unzip, and move the
-apps to `/Applications`. The builds are not notarized, so clear the download flag once:
+Download `Hop.zip` from the [latest release](https://github.com/jackoregankenny/hop/releases/latest),
+unzip, and move it to `/Applications`. The build is not notarized, so clear the download flag once:
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/Rayfast.app /Applications/Tiles.app
+xattr -dr com.apple.quarantine /Applications/Hop.app
 ```
 
-Both apps then keep themselves up to date from GitHub Releases: they check every few hours,
-install only a download whose SHA-256 matches the release and whose bundle id and version are
-right, and restart while idle. Turn it off with **Automatic Updates** in Rayfast's menu, or
-`"autoUpdate": false` in Tiles' config. macOS asks for Accessibility again after an update, because
-the builds are ad-hoc signed.
+Hop then keeps itself up to date from GitHub Releases: it checks every few hours, installs only a
+download whose SHA-256 matches the release and whose bundle id and version are right, and restarts
+while closed. Turn it off with **Automatic Updates** in Hop's menu. macOS asks for Accessibility
+again after an update, because the builds are ad-hoc signed.
 
 ## Build from source
 
 Needs only the Xcode command line tools.
 
 ```sh
-./build.sh          # builds build/Rayfast.app and build/Tiles.app
-./build.sh test     # both self-tests
+./build.sh          # builds build/Hop.app
+./build.sh test     # self-test
 ./build.sh snaptest # presses the real snap hotkeys on a throwaway Finder window and checks where it lands
-open build/Rayfast.app build/Tiles.app
+open build/Hop.app
 ./build.sh release 0.3.0   # tag and push; GitHub Actions builds, tests and publishes the release
 ```
 
 Source builds are version `dev` and never update themselves.
-
-## Rayfast
 
 It reaches into what macOS already exposes (Accessibility, CoreAudio, IOBluetooth, IOKit,
 Dictionary Services, Spotlight, Apple Events, the `shortcuts` CLI) instead of shipping its own.
@@ -47,7 +42,7 @@ Keyboard Shortcuts → Spotlight). Window actions, menu search, window switching
 paste need Accessibility: run **Grant Accessibility Access** from the launcher. Ad-hoc signed builds
 get a new identity on every rebuild, so macOS asks again after rebuilding.
 
-### What you can type
+## What you can type
 
 | Type | Get |
 |---|---|
@@ -70,42 +65,42 @@ get a new identity on every rebuild, so macOS asks again after rebuilding.
 
 Keys: ↑↓ move, ↵ run, ⌘↵ alternate (reveal, copy, paste), ⌘1–9 run a row, Tab completes, Esc clears then closes.
 
-### Ranking
+## Ranking
 
-Real names beat keywords, and Rayfast's own commands (Settings, Edit Config, Quit…) rank below
-your apps and System Settings, so `settings` opens macOS settings, not Rayfast's.
+Real names beat keywords, and Hop's own commands (Settings, Edit Config, Quit…) rank below
+your apps and System Settings, so `settings` opens macOS settings, not Hop's.
 
 On top of that it learns, lightly: everything you open gets a score that halves every week, so
 what you use now rises and what you stopped using fades. It also remembers what you picked for
 each query (`s` → Slack); a new choice takes over after a pick or two. All of it is a few
-numbers in Rayfast's preferences, nothing leaves the Mac.
+numbers in Hop's preferences, nothing leaves the Mac.
 
 There is a single web row and no autocomplete. It goes **first** when the query reads like a
 question (`how do i…`, `why…`, `best…`, a `?`, four or more words) or nothing here matches well,
 and **last** when something on the Mac clearly does. Menu items of the front app only show when
 they are about as good as the best match, so `slack` lists Slack, not *Hide Slack* and *Quit Slack*.
 
-Files follow the same idea. Spotlight indexes everything, so Rayfast keeps only files a person
+Files follow the same idea. Spotlight indexes everything, so Hop keeps only files a person
 would look for: ones you have opened (macOS records that; generated, cloned and unzipped files
 never get it), ranked by how recently, plus new files near the top of Desktop, Documents and
 Downloads. Never-opened source code, JSON, logs, test fixtures, `node_modules`, build output,
 hidden folders and `~/Library` stay out.
 
-### Settings menu
+## Settings menu
 
 The ⚡ menu-bar icon is the settings menu. Each feature is a checkmark you can switch off, and off
 means off: no hotkeys, timers, network or Apple Events, not just hidden results.
 
 - **Window Snapping**: every window command and every hotkey bound to one, including your own
 - **Clipboard History**: stops the clipboard poller and forgets what it held
-- **Browser Tabs**, **Exchange Rates** (the only network call Rayfast makes), **File Search**
+- **Browser Tabs**, **Exchange Rates** (the only network call Hop makes), **File Search**
 - **Launch at Login**
 - **Hotkeys**: everything currently registered, plus Edit
 - **Snippets**: paste one, **Save Clipboard as Snippet**, or Edit
 
 Typing `settings` in the launcher opens the same menu.
 
-### Themes
+## Themes
 
 A `"theme"` key in config.json: a preset name, or a preset plus overrides. No CSS, just the Mac's
 own blur materials and a few numbers.
@@ -120,7 +115,7 @@ Presets: `default`, `compact`, `midnight`, `graphite`, `paper`, `terminal`. Keys
 (`#rrggbb` or `#rrggbbaa`), `font` (system, rounded, mono, serif, or a font name), `fontSize`,
 `width`, `rows`, `rowHeight`, `radius`. **Reload Config** applies changes.
 
-### Snippets
+## Snippets
 
 Text you paste from the launcher: type a snippet's name or keyword, ↵ pastes it into the app you
 were in, ⌘↵ copies. Placeholders: `{date}`, `{time}`, `{datetime}`, `{clipboard}`. Snippet names can
@@ -133,7 +128,7 @@ be bound to hotkeys like any other command.
 ]
 ```
 
-### Window snapping
+## Window snapping
 
 Works from the launcher or from global hotkeys with no setup, using Rectangle's layout so the
 muscle memory carries over. Switch it all off from the settings menu. Pressing Left or Right Half again cycles ½ → ⅔ → ⅓.
@@ -152,9 +147,9 @@ muscle memory carries over. Switch it all off from the settings menu. Pressing L
 Launcher-only: Center Half, Almost Maximize, Move Left/Right/Up/Down (to the edge, keeping size).
 Bind any of them in the config.
 
-### Config: `~/.config/rayfast/config.json`
+## Config: `~/.config/hop/config.json`
 
-Run **Edit Rayfast Config** to create an example. Your hotkeys are added on top of the defaults;
+Run **Edit Hop Config** to create an example. Your hotkeys are added on top of the defaults;
 any command title can be bound, and `"none"` turns a default off:
 
 ```json
@@ -165,10 +160,10 @@ any command title can be bound, and `"none"` turns a default off:
 }
 ```
 
-### Plugins: script commands
+## Plugins: script commands
 
-Drop executables in `~/.config/rayfast/scripts`. The header uses Raycast's script-command format,
-so scripts written for it run unchanged (`@rayfast.*` works too). See `scripts/` for examples.
+Drop executables in `~/.config/hop/scripts`. The header uses Raycast's script-command format,
+so scripts written for it run unchanged (`@hop.*` works too). See `scripts/` for examples.
 
 ```sh
 #!/bin/sh
@@ -181,39 +176,3 @@ lsof -nP -iTCP:"$1" -sTCP:LISTEN
 Typing `port 3000` runs it with `3000`; output shows in the panel, ↵ copies a line.
 
 Debug flags: `--show`, `--query "text"`, `--snapshot out.png`, `--probe` (read-only report of what it can see), `--selftest`.
-
-## Tiles
-
-Tiles arranges the windows on each display of the current Space. It uses only the public
-Accessibility API, so it needs no SIP changes; grant it Accessibility from its menu.
-
-Layouts: master & stack, columns, rows, grid, monocle. **Auto-Tile** re-tiles whenever windows open,
-close, minimise or the Space changes (it watches the on-screen window list, which needs no per-app
-observers). **Restore Original Positions** puts everything back where it was.
-
-Default hotkeys are ⌃⌥⌘ + a letter or number, so they never collide with Rayfast's snapping keys:
-
-| Keys | Action |
-|---|---|
-| ⌃⌥⌘T / ⌃⌥⌘⇧T | tile now / toggle auto-tile |
-| ⌃⌥⌘ H J K L | focus left, down, up, right |
-| ⌃⌥⌘⇧ H J K L | swap with the window in that direction |
-| ⌃⌥⌘M | promote focused window to master |
-| ⌃⌥⌘= / ⌃⌥⌘- | grow / shrink master |
-| ⌃⌥⌘F | float or tile the frontmost app |
-| ⌃⌥⌘1–5 | master, columns, rows, grid, monocle |
-| ⌃⌥⌘R | restore original positions |
-
-`~/.config/tiles/config.json` (menu → **Edit Config…** writes one with the defaults):
-
-```json
-{ "layout": "master", "gap": 10, "ratio": 0.55, "auto": false, "float": ["FaceTime"],
-  "hotkeys": { "ctrl+opt+cmd+space": "tile", "ctrl+opt+cmd+r": "none" } }
-```
-
-Actions are a small language shared by hotkeys, the menu and URLs, so anything can drive Tiles,
-including Rayfast quicklinks or scripts: `open tiles://layout/grid`, `tiles://auto/toggle`,
-`tiles://focus/left`, `tiles://swap/right`, `tiles://promote`, `tiles://grow`, `tiles://float`,
-`tiles://restore`.
-
-Debug flags: `--probe` (lists what it would tile, moves nothing), `--selftest`.

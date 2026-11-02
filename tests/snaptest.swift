@@ -1,7 +1,7 @@
-// Drives Rayfast's real hotkeys against a throwaway Finder window and checks the resulting frames.
+// Drives Hop's real hotkeys against a throwaway Finder window and checks the resulting frames.
 // Run it with `./build.sh snaptest`. It takes keyboard focus for a few seconds, never presses a snap
 // key unless the test window is focused, then closes the window and gives focus back.
-// Usage: snaptest <path to Rayfast binary> <empty config dir>
+// Usage: snaptest <path to Hop binary> <empty config dir>
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
@@ -33,22 +33,22 @@ func press(_ key: Int, _ flags: CGEventFlags) {
     }
 }
 
-guard CommandLine.arguments.count == 3 else { print("usage: snaptest <rayfast binary> <config dir>"); exit(2) }
+guard CommandLine.arguments.count == 3 else { print("usage: snaptest <hop binary> <config dir>"); exit(2) }
 guard AXIsProcessTrusted() else { print("harness is not trusted for Accessibility"); exit(2) }
 
-// A Rayfast that is already running owns the hotkeys, so ours could not register them.
-if !NSRunningApplication.runningApplications(withBundleIdentifier: "dev.rayfast.launcher").isEmpty {
-    print("Rayfast is already running; quit it first so the test instance can register the hotkeys")
+// A Hop that is already running owns the hotkeys, so ours could not register them.
+if !NSRunningApplication.runningApplications(withBundleIdentifier: "dev.hop.launcher").isEmpty {
+    print("Hop is already running; quit it first so the test instance can register the hotkeys")
     exit(2)
 }
 
 let previous = NSWorkspace.shared.frontmostApplication
 print("frontmost before:", previous?.localizedName ?? "?")
 
-// 1. Rayfast with defaults only.
+// 1. Hop with defaults only.
 let rf = Process()
 rf.executableURL = URL(fileURLWithPath: CommandLine.arguments[1])
-rf.environment = ["RAYFAST_HOME": CommandLine.arguments[2]]
+rf.environment = ["HOP_HOME": CommandLine.arguments[2]]
 try! rf.run()
 sleep(1.0)
 
@@ -93,7 +93,7 @@ func testWindowFocused() -> Bool {
     return CFEqual(f, win)
 }
 func step(_ name: String, _ key: Int, _ flags: CGEventFlags, expect: (CGRect) -> CGRect) {
-    guard rf.isRunning else { print("FAIL", name, "· Rayfast is no longer running"); fails += 1; return }
+    guard rf.isRunning else { print("FAIL", name, "· Hop is no longer running"); fails += 1; return }
     if !testWindowFocused() {
         AXUIElementSetAttributeValue(win, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(win, kAXRaiseAction as CFString)
@@ -130,7 +130,7 @@ step("⌃⌥C Center", kVK_ANSI_C, ctrlOpt) { w in
 step("⌃⌥↩ Maximize", kVK_Return, ctrlOpt) { _ in ax(0, 1, 0, 1) }
 step("⌃⌥⌫ Restore", kVK_Delete, ctrlOpt) { _ in start }
 
-// Clean up: close the test window, quit Rayfast, give focus back.
+// Clean up: close the test window, quit Hop, give focus back.
 if let close = attr(win, kAXCloseButtonAttribute) { AXUIElementPerformAction(close as! AXUIElement, kAXPressAction as CFString) }
 rf.terminate()
 rf.waitUntilExit()

@@ -1,8 +1,8 @@
 import AppKit
 import ApplicationServices
 
-// Window access shared by Rayfast (snapping) and Tiles (tiling): Accessibility to move and resize,
-// CGWindowList to see what is on the current Space. No SIP changes, no scripting additions; the only
+// Window access for snapping: Accessibility to move and resize, CGWindowList to see what is on
+// the current Space. No SIP changes, no scripting additions; the only
 // private call is the AX element -> window id lookup that every macOS window manager uses.
 
 @_silgen_name("_AXUIElementGetWindow")

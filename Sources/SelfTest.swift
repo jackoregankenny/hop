@@ -92,12 +92,12 @@ enum SelfTest {
         check(Usage.decayed(8, since: 0, now: week) == 4, "frecency halves each week")
         check(Usage.decayed(8, since: 100, now: 50) == 8, "no decay backwards in time")
         var picks: [String: Double] = [:]
-        for _ in 0..<10 { picks = Usage.pick(picks, "rayfast-settings") }
+        for _ in 0..<10 { picks = Usage.pick(picks, "hop-settings") }
         picks = Usage.pick(picks, "system-settings")
         picks = Usage.pick(picks, "system-settings")
-        check(picks["system-settings"]! > picks["rayfast-settings"]!, "two recent picks beat ten old ones")
+        check(picks["system-settings"]! > picks["hop-settings"]!, "two recent picks beat ten old ones")
         for _ in 0..<12 { picks = Usage.pick(picks, "system-settings") }
-        check(picks["rayfast-settings"] == nil, "a choice you stopped making fades out")
+        check(picks["hop-settings"] == nil, "a choice you stopped making fades out")
 
         // Files: the shapes of noise seen in real results, and files people do want
         let home = "/Users/u"

@@ -238,7 +238,7 @@ final class Files {
 /// - frecency: every open adds 1 to a score that halves each week, so what you use now outranks
 ///   what you used a lot months ago, and something you stop using fades out on its own;
 /// - picks: what you chose for this exact query (or a shorter prefix of it). Each pick shrinks the
-///   other choices for that query, so switching from Rayfast Settings to System Settings for "se"
+///   other choices for that query, so switching from Hop Settings to System Settings for "se"
 ///   takes a pick or two, not weeks.
 enum Usage {
     static let halfLife: Double = 7 * 86_400
@@ -314,7 +314,7 @@ enum System {
 
     private static var caffeinate: Process?
     static var awake: Bool { caffeinate?.isRunning == true }
-    /// caffeinate -w ties it to our pid, so it can never outlive Rayfast.
+    /// caffeinate -w ties it to our pid, so it can never outlive Hop.
     static func toggleAwake() {
         if awake { caffeinate?.terminate(); caffeinate = nil; return }
         let p = Process()
