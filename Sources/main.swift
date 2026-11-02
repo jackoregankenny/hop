@@ -49,6 +49,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self?.status.button?.performClick(nil) }
         }
 
+        // --check validates config.json for people and agents: exit 0 when valid, 1 with errors.
+        if CommandLine.arguments.contains("--check") {
+            launcher.apps.refreshNow()
+            let text = FileManager.default.contents(atPath: Config.path).map { String(decoding: $0, as: UTF8.self) }
+            let r = ConfigCheck.run(text: text, known: launcher.knownActions())
+            print(Config.path)
+            for e in r.errors { print("error: " + e) }
+            for w in r.warnings { print("warning: " + w) }
+            print(r.errors.isEmpty ? "ok: \(r.summary)" + (r.warnings.isEmpty ? "" : " (\(r.warnings.count) warnings)") : "\(r.errors.count) errors")
+            exit(r.errors.isEmpty ? 0 : 1)
+        }
+
         // --menu prints the settings menu and quits (for checking it without clicking).
         if CommandLine.arguments.contains("--menu") {
             menuNeedsUpdate(menu)
@@ -73,7 +85,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // --snapshot out.png renders the panel to a file and quits (no Screen Recording permission needed).
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                guard let v = self.launcher.panel.contentView,
+                // The content, not the backdrop: Liquid Glass is drawn by the window server and
+                // cannot be captured offscreen, so this shows layout and text, not the material.
+                let v = self.launcher.root
+                if ProcessInfo.processInfo.environment["HOP_DEBUG"] != nil {
+                    print("backdrop:", type(of: self.launcher.panel.contentView!), "root:", v.frame, "in", v.superview.map { "\(type(of: $0))" } ?? "nothing")
+                }
+                guard
                       let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { exit(1) }
                 v.cacheDisplay(in: v.bounds, to: rep)
                 try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[i + 1]))

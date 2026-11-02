@@ -137,3 +137,128 @@ struct Script {
         }
     }
 }
+
+/// Applies config edits as soon as they are saved, by you or by an agent: watches the config
+/// folder (atomic saves replace the file) and the file itself (in-place writes).
+final class ConfigWatch {
+    private var dirSource: DispatchSourceFileSystemObject?
+    private var fileSource: DispatchSourceFileSystemObject?
+    private var pending: DispatchWorkItem?
+    private let onChange: () -> Void
+
+    init(onChange: @escaping () -> Void) {
+        self.onChange = onChange
+        try? FileManager.default.createDirectory(atPath: Config.dir, withIntermediateDirectories: true)
+        dirSource = watch(Config.dir, .write)
+        fileSource = watch(Config.path, [.write, .extend, .delete, .rename])
+    }
+
+    private func watch(_ path: String, _ events: DispatchSource.FileSystemEvent) -> DispatchSourceFileSystemObject? {
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return nil }
+        let s = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: events, queue: .main)
+        s.setEventHandler { [weak self] in self?.changed() }
+        s.setCancelHandler { close(fd) }
+        s.resume()
+        return s
+    }
+
+    private func changed() {
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.fileSource?.cancel()   // a replaced file is a new inode; watch the new one
+            self.fileSource = self.watch(Config.path, [.write, .extend, .delete, .rename])
+            self.onChange()
+        }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+}
+
+/// `hop --check`: validates config.json and says exactly what is wrong, for people and agents.
+enum ConfigCheck {
+    static let topKeys: Set<String> = ["hotkeys", "snapGap", "snippets", "quicklinks", "theme"]
+    static let themeKeys: Set<String> = ["preset", "appearance", "blur", "background", "accent", "font", "fontSize",
+                                         "width", "rows", "rowHeight", "radius"]
+
+    /// `known`: lowercased names a hotkey may run (commands, apps, snippets, scripts, quicklinks).
+    static func run(text: String?, known: Set<String>) -> (errors: [String], warnings: [String], summary: String) {
+        var errors: [String] = [], warnings: [String] = []
+        guard let text else { return ([], [], "no config file; defaults in use") }
+        let obj: [String: Any]
+        do {
+            guard let o = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
+                return (["the top level must be a JSON object { … }"], [], "")
+            }
+            obj = o
+        } catch {
+            let detail = (error as NSError).userInfo["NSDebugDescription"] as? String ?? error.localizedDescription
+            return (["invalid JSON: \(detail)"], [], "")
+        }
+        func suggest(_ k: String, _ options: Set<String>) -> String {
+            options.min { Match.osa(k.lowercased(), $0.lowercased()) < Match.osa(k.lowercased(), $1.lowercased()) }
+                .map { Match.osa(k.lowercased(), $0.lowercased()) <= 3 ? " (did you mean \"\($0)\"?)" : "" } ?? ""
+        }
+        for k in obj.keys.sorted() where !topKeys.contains(k) { errors.append("unknown key \"\(k)\"\(suggest(k, topKeys))") }
+
+        var hotkeyCount = 0
+        if let v = obj["hotkeys"] {
+            if let hk = v as? [String: String] {
+                for (combo, action) in hk.sorted(by: { $0.key < $1.key }) {
+                    hotkeyCount += 1
+                    if HotKeys.parse(combo) == nil {
+                        errors.append("hotkeys.\"\(combo)\": can't read this combo; use modifiers cmd, opt, ctrl, shift and a key "
+                                      + "like a, 1, left, return, space, minus, equal, delete, f1")
+                    }
+                    let a = action.trimmingCharacters(in: .whitespaces).lowercased()
+                    if !(a.isEmpty || a == "none" || known.contains(a)) {
+                        warnings.append("hotkeys.\"\(combo)\": nothing is called \"\(action)\"\(suggest(a, known)); "
+                                        + "use \"show\", a command, app, snippet, script or quicklink name, or \"none\"")
+                    }
+                }
+            } else { errors.append("hotkeys must be an object of \"combo\": \"action\" strings") }
+        }
+        if let v = obj["snapGap"], !(v is NSNumber) { errors.append("snapGap must be a number") }
+        let snippets = obj["snippets"] as? [[String: Any]]
+        if obj["snippets"] != nil && snippets == nil { errors.append("snippets must be an array of objects") }
+        for (i, s) in (snippets ?? []).enumerated() {
+            if !(s["text"] is String) { errors.append("snippets[\(i)]: needs \"text\"") }
+            if !(s["name"] is String || s["keyword"] is String) { errors.append("snippets[\(i)]: needs a \"name\" or \"keyword\"") }
+        }
+        let links = obj["quicklinks"] as? [[String: Any]]
+        if obj["quicklinks"] != nil && links == nil { errors.append("quicklinks must be an array of objects") }
+        for (i, l) in (links ?? []).enumerated() {
+            if !(l["name"] is String) { errors.append("quicklinks[\(i)]: needs \"name\"") }
+            if let u = l["url"] as? String { if URL(string: u.replacingOccurrences(of: "{query}", with: "x")) == nil {
+                errors.append("quicklinks[\(i)]: \"url\" is not a URL") } } else { errors.append("quicklinks[\(i)]: needs \"url\"") }
+        }
+        var themeName = "default"
+        switch obj["theme"] {
+        case nil: break
+        case let name as String:
+            themeName = name
+            if Theme.presets[name.lowercased()] == nil {
+                errors.append("theme: no preset \"\(name)\"; presets are \(Theme.presets.keys.sorted().joined(separator: ", "))")
+            }
+        case let d as [String: Any]:
+            themeName = (d["preset"] as? String ?? "default") + " + overrides"
+            for k in d.keys.sorted() where !themeKeys.contains(k) { errors.append("theme: unknown key \"\(k)\"\(suggest(k, themeKeys))") }
+            if let p = d["preset"] as? String, Theme.presets[p.lowercased()] == nil { errors.append("theme.preset: no preset \"\(p)\"") }
+            for k in ["background", "accent"] { if let c = d[k] as? String, Theme.color(c) == nil {
+                errors.append("theme.\(k): \"\(c)\" is not a colour; use #rgb, #rrggbb or #rrggbbaa") } }
+            if let b = d["blur"] as? String, !Theme.blurs.contains(b.lowercased()) {
+                errors.append("theme.blur: use one of \(Theme.blurs.sorted().joined(separator: ", "))")
+            }
+            if let a = d["appearance"] as? String, !["auto", "dark", "light"].contains(a.lowercased()) {
+                errors.append("theme.appearance: use auto, dark or light")
+            }
+            for k in ["fontSize", "width", "rows", "rowHeight", "radius"] where d[k] != nil && !(d[k] is NSNumber) {
+                errors.append("theme.\(k) must be a number")
+            }
+        default: errors.append("theme must be a preset name or an object")
+        }
+        let summary = "\(hotkeyCount) hotkeys, \(snippets?.count ?? 0) snippets, \(links?.count ?? 0) quicklinks, theme \(themeName)"
+        return (errors, warnings, summary)
+    }
+}

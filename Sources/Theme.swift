@@ -3,7 +3,8 @@ import AppKit
 /// The panel's look, from the "theme" key in config.json: a preset name, or a preset plus overrides.
 ///   "theme": "midnight"
 ///   "theme": { "preset": "paper", "accent": "#2563eb", "fontSize": 16, "width": 820 }
-/// Keys: preset, appearance (auto|dark|light), blur (popover|hud|sidebar|menu|none),
+/// Keys: preset, appearance (auto|dark|light), blur (auto|glass|clear|popover|hud|sidebar|menu|none;
+/// auto is Liquid Glass on macOS 26 and the popover blur before it),
 /// background ("#rrggbb" or "#rrggbbaa", drawn over the blur), accent, font (system|rounded|mono|serif
 /// or a font name), fontSize, width, rows, rowHeight, radius.
 struct Theme: Equatable {
@@ -14,7 +15,7 @@ struct Theme: Equatable {
     var fontSize: CGFloat = 15
     var font = "system"
     var appearance = "auto"
-    var blur = "popover"
+    var blur = "auto"
     var background: String?
     var accent: String?
 
@@ -73,6 +74,18 @@ struct Theme: Equatable {
         }
     }
 
+    /// Liquid Glass style on macOS 26 and later: "regular", "clear", or nil for the classic blur.
+    var glass: String? {
+        switch blur {
+        case "auto", "glass": return "regular"
+        case "clear": return "clear"
+        default: return nil
+        }
+    }
+
+    static let blurs: Set<String> = ["auto", "glass", "clear", "popover", "hud", "sidebar", "menu", "none"]
+
+    /// The classic blur, also the fallback for glass before macOS 26.
     var material: NSVisualEffectView.Material? {
         switch blur {
         case "none": return nil

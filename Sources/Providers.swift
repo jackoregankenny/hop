@@ -90,8 +90,18 @@ final class Apps {
     struct App { let name: String; let path: String }
     private(set) var all: [App] = []
 
+    /// Synchronous scan, for command-line checks.
+    func refreshNow() { all = Apps.scan() }
+
     func refresh() {
         DispatchQueue.global(qos: .utility).async {
+            let found = Apps.scan()
+            DispatchQueue.main.async { self.all = found }
+        }
+    }
+
+    static func scan() -> [App] {
+        do {
             let fm = FileManager.default
             let home = fm.homeDirectoryForCurrentUser.path
             let roots = ["/Applications", "/System/Applications", "\(home)/Applications",
@@ -114,7 +124,7 @@ final class Apps {
                 }
             }
             add("/System/Library/CoreServices/Finder.app")
-            DispatchQueue.main.async { self.all = found }
+            return found
         }
     }
 }

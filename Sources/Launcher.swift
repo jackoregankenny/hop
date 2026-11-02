@@ -70,8 +70,10 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     let table = NSTableView()
     let scroll = NSScrollView()
     let line = NSBox()
-    private let bg = NSVisualEffectView()
-    private let tint = NSView()               // theme background, drawn over the blur
+    let root = NSView()                       // all content; sits in the glass or the blur
+    private let bg = NSVisualEffectView()     // classic blur, and the fallback before macOS 26
+    private var liquid: NSView?               // NSGlassEffectView on macOS 26
+    private let tint = NSView()               // theme background over the classic blur
     private let glass = NSImageView()
     private let footerLine = NSBox()
     private let footerLeft = NSTextField(labelWithString: "")
@@ -87,6 +89,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     private var hotkeyLabels: [String: String] = [:]   // lowercased action -> "⌃⌥←"
     private(set) var activeHotkeys: [(combo: String, action: String)] = []
     var onOpenSettings: (() -> Void)?
+    private var watch: ConfigWatch?
 
     var items: [Item] = []
     private var query = ""
@@ -129,9 +132,12 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         bg.state = .active
         bg.autoresizingMask = [.width, .height]
         panel.contentView = bg
+        root.frame = bg.bounds
+        root.autoresizingMask = [.width, .height]
+        bg.addSubview(root)
         tint.wantsLayer = true
         tint.autoresizingMask = [.width, .height]
-        tint.frame = bg.bounds
+        tint.frame = root.bounds
 
         glass.contentTintColor = .secondaryLabelColor
         field.isBordered = false
@@ -169,18 +175,30 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
 
-        for v in [tint, glass, field, line, scroll, footerLine, footerLeft, footerRight] as [NSView] { bg.addSubview(v) }
+        for v in [tint, glass, field, line, scroll, footerLine, footerLeft, footerRight] as [NSView] { root.addSubview(v) }
         applyTheme()
         apps.refresh()
+        watch = ConfigWatch { [weak self] in self?.applyConfig() }
+    }
+
+    /// Lowercased names a hotkey can run, for `hop --check`.
+    func knownActions() -> Set<String> {
+        Set(pool(query: "").compactMap { $0.names.first?.lowercased() })
+            .union(Snap.actionNames.map { $0.lowercased() }).union(["show", "clipboard history"])
     }
 
     private func applyTheme() {
         let t = Launcher.theme
         panel.appearance = t.nsAppearance
-        if let m = t.material { bg.material = m; bg.state = .active } else { bg.state = .inactive }
-        tint.layer?.backgroundColor = t.background.flatMap(Theme.color)?.cgColor
-            ?? (t.material == nil ? NSColor.windowBackgroundColor.cgColor : nil)
-        bg.maskImage = Launcher.mask(radius: max(t.radius, 0.5))
+        if !useGlass(t) {
+            if root.superview !== bg { root.removeFromSuperview(); root.frame = bg.bounds; bg.addSubview(root) }
+            if panel.contentView !== bg { panel.contentView = bg }
+            tint.isHidden = false
+            if let m = t.material { bg.material = m; bg.state = .active } else { bg.state = .inactive }
+            tint.layer?.backgroundColor = t.background.flatMap(Theme.color)?.cgColor
+                ?? (t.material == nil ? NSColor.windowBackgroundColor.cgColor : nil)
+            bg.maskImage = Launcher.mask(radius: max(t.radius, 0.5))
+        }
         glass.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: t.fontSize + 4, weight: .medium))
         field.font = t.font(t.fontSize + 8)
@@ -188,6 +206,25 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         table.rowHeight = t.rowHeight
         table.reloadData()
         if panel.isVisible { resize() }
+    }
+
+    /// Liquid Glass: the system draws the material, shape and edge light; the theme only picks the
+    /// style, corner radius and an optional tint. Returns false where it is unavailable.
+    private func useGlass(_ t: Theme) -> Bool {
+        #if compiler(>=6.2)
+        if #available(macOS 26, *), let style = t.glass {
+            let g = liquid as? NSGlassEffectView ?? NSGlassEffectView()
+            g.style = style == "clear" ? .clear : .regular
+            g.cornerRadius = t.radius
+            g.tintColor = t.background.flatMap(Theme.color)
+            if g.contentView !== root { root.removeFromSuperview(); g.contentView = root }
+            if panel.contentView !== g { panel.contentView = g }
+            tint.isHidden = true
+            liquid = g
+            return true
+        }
+        #endif
+        return false
     }
 
     static func mask(radius r: CGFloat) -> NSImage {

@@ -6,6 +6,9 @@ Dictionary Services, Spotlight, Apple Events, the `shortcuts` CLI) instead of sh
 
 Looking for tiling? That's a separate app: [Tiles](https://github.com/jackoregankenny/tiles).
 
+Configured by one plain JSON file that applies the moment it's saved, and `Hop --check` validates
+it, so you or an agent can set it up by editing text. [AGENTS.md](AGENTS.md) is the reference.
+
 ## Install
 
 Download `Hop.zip` from the [latest release](https://github.com/jackoregankenny/hop/releases/latest),
@@ -111,9 +114,10 @@ own blur materials and a few numbers.
 ```
 
 Presets: `default`, `compact`, `midnight`, `graphite`, `paper`, `terminal`. Keys: `appearance`
-(auto, dark, light), `blur` (popover, hud, sidebar, menu, none), `background` and `accent`
+(auto, dark, light), `blur` (auto, glass, clear, popover, hud, sidebar, menu, none; `auto` is
+Liquid Glass on macOS 26 and the classic blur before it), `background` and `accent`
 (`#rrggbb` or `#rrggbbaa`), `font` (system, rounded, mono, serif, or a font name), `fontSize`,
-`width`, `rows`, `rowHeight`, `radius`. **Reload Config** applies changes.
+`width`, `rows`, `rowHeight`, `radius`. Changes apply when you save.
 
 ## Snippets
 
@@ -149,8 +153,10 @@ Bind any of them in the config.
 
 ## Config: `~/.config/hop/config.json`
 
-Run **Edit Hop Config** to create an example. Your hotkeys are added on top of the defaults;
-any command title can be bound, and `"none"` turns a default off:
+Run **Edit Hop Config** to create an example. Saved changes apply immediately, and
+`Hop --check` (the binary is in `Hop.app/Contents/MacOS/`) reports any mistakes with exit code 1.
+Your hotkeys are added on top of the defaults; any command title can be bound, and `"none"` turns
+a default off. Full reference: [AGENTS.md](AGENTS.md).
 
 ```json
 {
@@ -175,4 +181,5 @@ lsof -nP -iTCP:"$1" -sTCP:LISTEN
 
 Typing `port 3000` runs it with `3000`; output shows in the panel, ↵ copies a line.
 
-Debug flags: `--show`, `--query "text"`, `--snapshot out.png`, `--probe` (read-only report of what it can see), `--selftest`.
+Flags: `--check` (validate config), `--menu` (print the settings menu), `--probe` (read-only report of
+what it can see), `--selftest`, `--update-now`, and for screenshots `--show --query "text" --snapshot out.png`.
