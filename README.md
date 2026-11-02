@@ -22,8 +22,8 @@ Hop checks GitHub Releases every few hours but never installs on its own. When t
 version, the menu-bar icon gets a small dot and a brief glint, and the panel's footer says
 "Update to X available · ⌘U". Press ⌘U, or choose **Update to X…** in the menu, and Hop installs it,
 only if the download's SHA-256 matches the release and its bundle id and version are right, then
-restarts. Turn the checks off with **Check for Updates** in Settings. macOS asks for Accessibility
-again after an update, because the builds are ad-hoc signed.
+restarts. Turn the checks off with **Check for Updates** in Settings. Releases are signed with a
+Developer ID, so Accessibility and other permissions carry over from one version to the next.
 
 App icons are drawn once into small PNGs in `~/Library/Caches/dev.hop.launcher/icons` (about
 1 MB for 130 apps, refreshed when an app updates), so results never wait on icon loading. It's a
@@ -38,7 +38,7 @@ Needs only the Xcode command line tools.
 ./build.sh test     # self-test
 ./build.sh snaptest # presses the real snap hotkeys on a throwaway Finder window and checks where it lands
 open build/Hop.app
-./build.sh release 0.3.0   # tag and push; GitHub Actions builds, tests and publishes the release
+./build.sh release 0.3.0   # test, sign with your Developer ID, notarize, tag and publish (from your Mac)
 ```
 
 Source builds are version `dev` and never update themselves.
@@ -46,8 +46,8 @@ Source builds are version `dev` and never update themselves.
 
 ⌥Space opens it. ⌘Space works once Spotlight's shortcut is off (System Settings → Keyboard →
 Keyboard Shortcuts → Spotlight). Window actions, menu search, window switching, media keys and
-paste need Accessibility: run **Grant Accessibility Access** from the launcher. Ad-hoc signed builds
-get a new identity on every rebuild, so macOS asks again after rebuilding.
+paste need Accessibility: run **Grant Accessibility Access** from the launcher. Dev builds are
+ad-hoc signed and get a new identity on every rebuild, so macOS asks again for those; releases keep theirs.
 
 ## What you can type
 

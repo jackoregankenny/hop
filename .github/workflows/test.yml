@@ -1,0 +1,16 @@
+# Runs the self-tests on every push and pull request. Releases are built, signed with the Developer ID
+# and published from a Mac with `./build.sh release <version>`, so the signing key never leaves it.
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-26   # Xcode 26: Liquid Glass needs the macOS 26 SDK
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-tests
+        run: ./build.sh test
