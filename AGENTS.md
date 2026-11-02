@@ -10,10 +10,12 @@ file, run the check, done: Hop applies saved changes immediately, no restart.
   bound to names that do not exist yet (for example an app that is not installed).
 - Inspect: `Hop --menu` prints the settings menu, including every registered hotkey.
 - Feature switches (Window Snapping, Clipboard History, Browser Tabs, Exchange Rates, File Search,
-  Automatic Updates) live in Hop's menu-bar menu, not in the file:
+  Check for Updates) live in Hop's menu-bar menu, not in the file:
   `defaults write dev.hop.launcher feature.<name> -bool false` with name one of
-  windowSnapping, clipboardHistory, browserTabs, exchangeRates, fileSearch, automaticUpdates.
-  Then run **Reload Config** from the menu, or save config.json.
+  windowSnapping, clipboardHistory, browserTabs, exchangeRates, fileSearch, automaticUpdates
+  (the key behind Check for Updates). Then run **Reload Config** from the menu, or save config.json.
+- Updates are never installed on their own: Hop only checks. Installing is the user's choice
+  (**Update to X…** in the menu, or ⌘U in the panel).
 
 ## config.json
 

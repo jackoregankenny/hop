@@ -89,6 +89,9 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     private var hotkeyLabels: [String: String] = [:]   // lowercased action -> "⌃⌥←"
     private(set) var activeHotkeys: [(combo: String, action: String)] = []
     var onOpenSettings: (() -> Void)?
+    /// A version waiting to be installed, shown quietly in the footer; ⌘U calls onUpdate.
+    var pendingUpdate: String? { didSet { updateFooter() } }
+    var onUpdate: (() -> Void)?
     private var watch: ConfigWatch?
 
     var items: [Item] = []
@@ -408,6 +411,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         guard mods.contains(.command), let ch = e.charactersIgnoringModifiers else { return false }
         if let n = Int(ch), n >= 1, n <= 9 { run(n - 1, alt: false); return true }
         if e.keyCode == 36 { run(table.selectedRow, alt: true); return true }
+        if ch == "u", pendingUpdate != nil, let go = onUpdate { hide(); go(); return true }
         // There is no menu bar in an agent app, so wire the text-editing shortcuts by hand.
         let edit: [String: Selector] = [
             "a": #selector(NSText.selectAll(_:)), "c": #selector(NSText.copy(_:)),
@@ -989,6 +993,9 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         guard r >= 0, r < items.count else { footerLeft.stringValue = ""; footerRight.stringValue = ""; return }
         let d = Launcher.describe(items[r])
         footerRight.stringValue = d.verb + "  ↵" + (d.alt.map { "     \($0)  ⌘↵" } ?? "")
-        footerLeft.stringValue = items[r].fill != nil ? "Tab completes  ·  ⌘1–9 quick open" : "⌘1–9 quick open"
+        // A pending update takes the hint's place rather than a result row, so it never competes with search.
+        footerLeft.textColor = pendingUpdate == nil ? .secondaryLabelColor : Launcher.theme.accent.flatMap(Theme.color) ?? .controlAccentColor
+        footerLeft.stringValue = pendingUpdate.map { "Update to \($0) available  ·  ⌘U" }
+            ?? (items[r].fill != nil ? "Tab completes  ·  ⌘1–9 quick open" : "⌘1–9 quick open")
     }
 }

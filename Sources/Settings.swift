@@ -3,7 +3,9 @@ import AppKit
 /// On/off switches in the menu bar menu. Everything defaults to on; turning something off stops it
 /// entirely (no timers, no hotkeys, no network, no Apple Events) rather than just hiding results.
 enum Feature: String, CaseIterable {
-    case windowSnapping, clipboardHistory, browserTabs, exchangeRates, fileSearch, automaticUpdates
+    case windowSnapping, clipboardHistory, browserTabs, exchangeRates, fileSearch
+    /// Keeps its old key, so a switch turned off before updates became opt-in stays off.
+    case updateChecks = "automaticUpdates"
 
     var title: String {
         switch self {
@@ -12,7 +14,7 @@ enum Feature: String, CaseIterable {
         case .browserTabs: return "Browser Tabs"
         case .exchangeRates: return "Exchange Rates"
         case .fileSearch: return "File Search"
-        case .automaticUpdates: return "Automatic Updates"
+        case .updateChecks: return "Check for Updates"
         }
     }
 
@@ -23,7 +25,7 @@ enum Feature: String, CaseIterable {
         case .browserTabs: return "Searches open tabs in Safari, Orion and Chromium browsers"
         case .exchangeRates: return "Live ECB rates for things like 100 usd to eur (the only network call)"
         case .fileSearch: return "Spotlight file results"
-        case .automaticUpdates: return "Checks GitHub Releases every few hours and installs while Hop is closed"
+        case .updateChecks: return "Looks at GitHub Releases every few hours; installs only when you choose to"
         }
     }
 
