@@ -3,7 +3,6 @@ import ApplicationServices
 import Carbon.HIToolbox
 import CoreAudio
 import CoreServices
-import IOKit.ps
 
 // Things macOS already exposes, wired into the launcher. Each one is a small, self-contained source.
 
@@ -147,24 +146,6 @@ enum Clock {
         let f = DateFormatter()
         f.dateFormat = "EEE d MMM yyyy, HH:mm:ss zzz"
         return (f.string(from: d), "Unix timestamp → local time")
-    }
-}
-
-enum Battery {
-    static func status() -> (String, String)? {
-        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let list = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
-        for ps in list {
-            guard let d = IOPSGetPowerSourceDescription(blob, ps)?.takeUnretainedValue() as? [String: Any],
-                  let cap = d[kIOPSCurrentCapacityKey] as? Int else { continue }
-            let charging = d[kIOPSIsChargingKey] as? Bool ?? false
-            let plugged = (d[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-            let mins = (charging ? d[kIOPSTimeToFullChargeKey] : d[kIOPSTimeToEmptyKey]) as? Int ?? -1
-            var sub = charging ? "Charging" : plugged ? "Plugged in" : "On battery"
-            if mins > 0 { sub += " · \(mins / 60)h \(mins % 60)m \(charging ? "to full" : "left")" }
-            return ("\(cap)%", sub)
-        }
-        return nil
     }
 }
 

@@ -14,7 +14,7 @@ check, done: Hop applies saved changes immediately, no restart.
   Check for Updates) live in Settings › General, not in the file:
   `defaults write dev.hop.launcher feature.<name> -bool false` with name one of
   windowSnapping, clipboardHistory, browserTabs, exchangeRates, fileSearch, automaticUpdates
-  (the key behind Check for Updates). Then run **Reload Hop Config** in the launcher, or save config.json.
+  (the key behind Check for Updates). Hop picks it up the next time its panel opens.
 - Updates are never installed on their own: Hop only checks. Installing is the user's choice
   (**Update to X…** in the menu, or ⌘U in the panel).
 

@@ -19,10 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var launcher: Launcher!
     var status: NSStatusItem!
     let updater = Updater(app: "Hop")
-    lazy var settings = SettingsWindow(launcher: launcher) { [weak self] in self?.syncUpdater() }
+    lazy var settings = SettingsWindow(launcher: launcher)
 
     func applicationDidFinishLaunching(_ n: Notification) {
         launcher = Launcher()
+        launcher.onConfig = { [weak self] in self?.syncUpdater() }
         // Hotkeys come from ~/.config/hop/config.json on top of the defaults (⌥Space, ⌘Space, snapping).
         // ⌘Space only fires once Spotlight's shortcut is turned off.
         launcher.applyConfig()
@@ -36,7 +37,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launcher.onUpdate = { [weak self] in self?.updater.check(install: true) }
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: launcher.panel,
                                                queue: .main) { [weak self] _ in self?.glint(atMostEvery: 300) }
-        syncUpdater()
         showUpdate()
         launcher.onOpenSettings = { [weak self] in self?.settings.present() }
 

@@ -8,9 +8,9 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
     private var panes: [ListPane] = []
     private let general: GeneralPane
 
-    init(launcher: Launcher, onFeatures: @escaping () -> Void) {
+    init(launcher: Launcher) {
         self.launcher = launcher
-        general = GeneralPane(launcher: launcher, onFeatures: onFeatures)
+        general = GeneralPane(launcher: launcher)
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         super.init(window: nil)
@@ -126,15 +126,13 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
 /// Feature switches, login, theme and the files behind it all.
 final class GeneralPane: NSViewController {
     private let launcher: Launcher
-    private let onFeatures: () -> Void
     private var boxes: [(Feature, NSButton)] = []
     private let login = NSButton(checkboxWithTitle: "Launch at Login", target: nil, action: nil)
     private let preset = NSPopUpButton()
     private let appearance = NSPopUpButton()
 
-    init(launcher: Launcher, onFeatures: @escaping () -> Void) {
+    init(launcher: Launcher) {
         self.launcher = launcher
-        self.onFeatures = onFeatures
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -187,8 +185,7 @@ final class GeneralPane: NSViewController {
     @objc private func toggled(_ b: NSButton) {
         guard let f = boxes.first(where: { $0.1 === b })?.0 else { return }
         f.isOn = b.state == .on
-        launcher.applyConfig()   // re-registers hotkeys and starts/stops the clipboard
-        onFeatures()
+        launcher.applyConfig()   // re-registers hotkeys, starts/stops the clipboard and the update checks
     }
 
     @objc private func loginToggled() {

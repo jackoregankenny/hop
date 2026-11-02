@@ -89,6 +89,9 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     private var hotkeyLabels: [String: String] = [:]   // lowercased action -> "⌃⌥←"
     private(set) var activeHotkeys: [(combo: String, action: String)] = []
     var onOpenSettings: (() -> Void)?
+    /// After every applyConfig, for what lives outside the launcher (the update checks).
+    var onConfig: (() -> Void)?
+    private var features: [Bool] = []   // the switches applyConfig last saw
     /// A version waiting to be installed, shown quietly in the footer; ⌘U calls onUpdate.
     var pendingUpdate: String? { didSet { updateFooter() } }
     var onUpdate: (() -> Void)?
@@ -273,6 +276,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let vf = screen?.visibleFrame else { return }
+        // Switches flipped outside Hop (`defaults write`, see AGENTS.md) take effect on the next open.
+        if Feature.allCases.map(\.isOn) != features { applyConfig() }
         topEdge = vf.maxY - vf.height * 0.2
         loadSources()
         field.stringValue = query
@@ -326,6 +331,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         sourcesChanged()
         if config.theme != Launcher.theme { Launcher.theme = config.theme; applyTheme() }
         snapper.gap = config.snapGap
+        features = Feature.allCases.map(\.isOn)
         clipboard.enabled = Feature.clipboardHistory.isOn
         hotkeys.removeAll()
         hotkeyLabels = [:]
@@ -336,6 +342,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             activeHotkeys.append((combo, action))
         }
         scripts = Script.load()
+        onConfig?()
     }
 
     /// Runs a hotkey action: "show", or the title of any command, window action, script or quicklink.
@@ -558,9 +565,6 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             out.append(Item(id: "define", title: w, subtitle: d, icon: .symbol("character.book.closed"),
                             action: { Web.open("dict://\(Web.enc(w))") }, alt: { [clipboard] in clipboard.copy(d) }))
         }
-        if ["battery", "batt", "power"].contains(where: { $0.hasPrefix(l) && l.count >= 3 }), let (pct, sub) = Battery.status() {
-            out.append(answer(pct, sub, .symbol("battery.75percent")))
-        }
         if let url = Web.looksLikeURL(q) {
             out.append(Item(id: "url", title: "Open \(q)", subtitle: url, icon: .symbol("safari"), action: { Web.open(url) }))
         }
@@ -658,8 +662,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     /// Hop's own housekeeping; ranked below everything you actually came to open.
-    private static let housekeeping: Set<String> = ["Hop Settings", "Edit Hop Config", "Reload Hop Config",
-        "Save Clipboard as Snippet", "Open Scripts Folder", "Reload Apps", "Quit Hop", "Grant Accessibility Access",
+    private static let housekeeping: Set<String> = ["Hop Settings", "Edit Hop Config",
+        "Save Clipboard as Snippet", "Open Scripts Folder", "Quit Hop", "Grant Accessibility Access",
         "Launch Hop at Login", "Don't Launch Hop at Login"]
 
     /// Everything matched by name, built once per panel open (or when a source changes) rather than
@@ -715,7 +719,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                              item: Item(id: "link:\(l.name)", title: l.name,
                                         subtitle: hasQuery ? "Bookmark · type \(l.key ?? l.name) <query>" : l.url,
                                         icon: .symbol("link"), fill: hasQuery ? "\(l.key ?? l.name) " : nil,
-                                        action: { Web.open(l.url.replacingOccurrences(of: "{query}", with: "")) })))
+                                        // A search waits for what to search for, from the list or a hotkey alike.
+                                        action: hasQuery ? { [weak self] in self?.show(query: "\(l.key ?? l.name) ") } : { Web.open(l.url) })))
         }
         for s in scripts {
             out.append(Entry(names: [s.title], base: -10, item: scriptItem(s, arg: nil)))
@@ -919,14 +924,10 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             cmd("Save Clipboard as Snippet", ["snippet", "new snippet"], "text.badge.plus", "Adds it to config.json") {
                 [weak self] in if Snippet.saveClipboard() { self?.applyConfig() }
             },
-            cmd("Reload Hop Config", ["refresh", "reload"], "arrow.triangle.2.circlepath", "Hotkeys, quicklinks, scripts") {
-                [weak self] in self?.applyConfig()
-            },
             cmd("Open Scripts Folder", ["plugins", "extensions", "script commands"], "terminal", Config.scriptsDir) { Config.openScripts() },
             cmd(login ? "Don't Launch Hop at Login" : "Launch Hop at Login", ["startup", "login"], "power.circle") {
                 System.launchAtLogin = !login
             },
-            cmd("Reload Apps", ["reindex"], "arrow.triangle.2.circlepath", "Rescan /Applications") { [apps] in apps.refresh() },
             cmd("Quit Hop", ["exit"], "xmark.circle") { NSApp.terminate(nil) },
         ]
         if !AXIsProcessTrusted() {

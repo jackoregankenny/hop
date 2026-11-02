@@ -67,7 +67,7 @@ ad-hoc signed and get a new identity on every rebuild, so macOS asks again for t
 | `:fire` | emoji by name, ↵ pastes |
 | `clip`, `clip foo` | clipboard history: text and images, including what dictation apps like Wispr Flow paste (memory only, skips password-manager copies), ↵ pastes |
 | `quit slack`, `kill node` | quit or force quit running apps |
-| `battery`, `vol 30`, `mute`, `keep awake`, `lock` | system controls |
+| `vol 30`, `mute`, `keep awake`, `lock` | system controls |
 | your Shortcuts by name | runs them through the Shortcuts app |
 | `yt`, `gh`, `x`, `wiki`, `maps`, `r` + query | site search; add your own as bookmarks with `{query}` |
 | a question, or anything not on the Mac | one **Search Google** row, placed by intent (see Ranking) |

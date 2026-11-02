@@ -17,7 +17,6 @@ enum Debug {
         print("shortcuts:", Shortcuts.list().count)
         print("audio devices:", Audio.devices().map { "\($0.output ? "out" : "in"):\($0.name)\($0.current ? "*" : "")" }
             .joined(separator: ", "))
-        print("battery:", Battery.status().map { "\($0.0) \($0.1)" } ?? "none")
         exit(0)
     }
 

@@ -399,12 +399,7 @@ enum Usage {
     /// you open all the time to beat a slightly better name match (a word start is 140 below a prefix).
     static let weight = 80.0
 
-    private static var frecency: [String: [Double]] = {   // id -> [score, last opened]
-        if let f = UserDefaults.standard.dictionary(forKey: "frecency") as? [String: [Double]] { return f }
-        let old = UserDefaults.standard.dictionary(forKey: "usage") as? [String: Double] ?? [:]   // earlier plain counts
-        let now = Date().timeIntervalSince1970
-        return old.mapValues { [$0, now] }
-    }()
+    private static var frecency = UserDefaults.standard.dictionary(forKey: "frecency") as? [String: [Double]] ?? [:]   // id -> [score, last opened]
     private static var picks = UserDefaults.standard.dictionary(forKey: "picks") as? [String: [String: Double]] ?? [:]
 
     static func decayed(_ score: Double, since last: Double, now: Double) -> Double {
@@ -448,7 +443,6 @@ enum Usage {
         // Keep it small: drop things that have faded to almost nothing.
         if frecency.count > 500 { frecency = frecency.filter { decayed($0.value[0], since: $0.value[1], now: now) > 0.05 } }
         UserDefaults.standard.set(frecency, forKey: "frecency")
-        UserDefaults.standard.removeObject(forKey: "usage")
         UserDefaults.standard.set(picks, forKey: "picks")
     }
 }

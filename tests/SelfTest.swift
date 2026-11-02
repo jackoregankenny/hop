@@ -218,6 +218,8 @@ enum SelfTest {
         let raw = (try? String(contentsOfFile: tmpHome + "/config.json", encoding: .utf8)) ?? ""
         check(cfg.quicklinks.isEmpty && !raw.contains("quicklinks") && raw.contains("paper"), "an emptied list removes its key")
         check(ConfigCheck.run(text: raw, known: []).errors.isEmpty, "written config passes --check")
+        let big = ConfigCheck.run(text: #"{ "theme": { "fontSize": 40 } }"#, known: [])
+        check(big.errors.isEmpty && big.warnings == ["theme.fontSize: 40 is outside 11–22, so Hop uses 22"], "--check warns about a clamped number")
         try? FileManager.default.removeItem(atPath: tmpHome)
         unsetenv("HOP_HOME")
 

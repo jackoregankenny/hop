@@ -95,7 +95,7 @@ struct Config {
 
 /// Script commands: executables in ~/.config/hop/scripts with metadata comments.
 /// Raycast's script-command headers (@raycast.title, .mode, .icon, .argument1) are read as-is,
-/// so scripts written for it run here unchanged; @hop.* works too (and @rayfast.*, Hop's old name).
+/// so scripts written for it run here unchanged; @hop.* works too.
 struct Script {
     let path: String
     let title: String
@@ -107,7 +107,7 @@ struct Script {
     static func load(from dir: String = Config.scriptsDir) -> [Script] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
-        let re = try? NSRegularExpression(pattern: #"@(?:raycast|rayfast|hop)\.([A-Za-z0-9]+)[ \t]+(.+?)\s*$"#, options: .anchorsMatchLines)
+        let re = try? NSRegularExpression(pattern: #"@(?:raycast|hop)\.([A-Za-z0-9]+)[ \t]+(.+?)\s*$"#, options: .anchorsMatchLines)
         return names.sorted().compactMap { name in
             let path = (dir as NSString).appendingPathComponent(name)
             guard !name.hasPrefix("."), let h = FileHandle(forReadingAtPath: path) else { return nil }
@@ -265,8 +265,12 @@ enum ConfigCheck {
             for (k, options) in [("blur", Theme.blurs), ("appearance", Theme.appearances)] {
                 if let v = d[k] as? String, !options.contains(v.lowercased()) { errors.append("theme.\(k): use one of \(options.sorted().joined(separator: ", "))") }
             }
-            for k in Theme.limits.keys.sorted() where d[k] != nil && !(d[k] is NSNumber) {
-                errors.append("theme.\(k) must be a number")
+            for k in Theme.limits.keys.sorted() where d[k] != nil {
+                guard let n = d[k] as? NSNumber else { errors.append("theme.\(k) must be a number"); continue }
+                let r = Theme.limits[k]!, v = CGFloat(n.doubleValue)
+                if !r.contains(v) {
+                    warnings.append("theme.\(k): \(n) is outside \(Int(r.lowerBound))–\(Int(r.upperBound)), so Hop uses \(Int(min(max(v, r.lowerBound), r.upperBound)))")
+                }
             }
         default: errors.append("theme must be a preset name or an object")
         }

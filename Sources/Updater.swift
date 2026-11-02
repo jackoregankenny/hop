@@ -47,9 +47,9 @@ final class Updater {
     }
 
     /// Checks shortly after launch, then every six hours. Only looks: installing is the user's call.
+    /// Does nothing while already checking on that schedule.
     func startChecking() {
-        stopChecking()
-        guard enabled else { return }
+        guard enabled, timer == nil else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
             guard let self, self.timer != nil else { return }
             self.check(install: false)
