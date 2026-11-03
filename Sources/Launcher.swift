@@ -91,6 +91,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     /// After every applyConfig, for what lives outside the launcher (the update checks).
     var onConfig: (() -> Void)?
     private var features: [Bool] = []   // the switches applyConfig last saw
+    /// First launch: until the panel first closes, an empty query lists the few things worth setting up.
+    var welcoming = false
     /// A version waiting to be installed, shown quietly in the footer; ⌘U calls onUpdate.
     var pendingUpdate: String? { didSet { updateFooter() } }
     var onUpdate: (() -> Void)?
@@ -288,6 +290,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     func hide() {
+        welcoming = false
         pending?.cancel()
         files.cancel()
         panel.orderOut(nil)
@@ -527,7 +530,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
 
     func compose(_ q: String) -> [Item] {
         if let o = output { return outputItems(o) }
-        if q.isEmpty { return [] }
+        if q.isEmpty { return welcoming ? welcomeItems() : [] }
         if isClipQuery(q) { return clipItems(q) }
         if let e = Emoji.query(q) { return emojiItems(e) }
         let l = q.lowercased()
@@ -625,6 +628,30 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
 
         if !webFirst && bang(q) == nil { out.append(google) }
         return out
+    }
+
+    /// The hotkey to tell people about: ⌥Space works from the start, ⌘Space only once Spotlight lets go of it.
+    private var openCombo: String? {
+        let shows = activeHotkeys.filter { $0.action == "show" }.map(\.combo)
+        return shows.contains("opt+space") ? "opt+space" : shows.first
+    }
+
+    /// The setup steps that still apply, each runnable in place so the list stays open.
+    private func welcomeItems() -> [Item] {
+        let steps = ["Use ⌘Space for Hop", "Grant Accessibility Access", "Launch Hop at Login", "Hop Settings"]
+        var items = commands().map(\.item).filter { steps.contains($0.title) }
+        // Spotlight keeps ⌘Space until its shortcut (symbolic hotkey 64) is turned off.
+        let spotlight = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys")?["64"] as? [String: Any]
+        if spotlight?["enabled"] as? Bool ?? true, activeHotkeys.contains(where: { $0.combo == "cmd+space" }) {
+            items.append(Item(id: "cmd:Use ⌘Space for Hop", title: "Use ⌘Space for Hop", subtitle: "Turn off Spotlight's shortcut in Keyboard Shortcuts",
+                              icon: .symbol("command"), action: { SettingsPanes.open("com.apple.Keyboard-Settings.extension") }))
+        }
+        return items.sorted { steps.firstIndex(of: $0.title)! < steps.firstIndex(of: $1.title)! }.map { item in
+            var i = item
+            i.keepOpen = true
+            i.action = { [weak self] in item.action(); self?.rebuild(keepSelection: false) }
+            return i
+        }
     }
 
     private func fileItem(_ path: String) -> Item {
@@ -1006,6 +1033,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         // A pending update takes the hint's place rather than a result row, so it never competes with search.
         footerLeft.textColor = pendingUpdate == nil ? .secondaryLabelColor : Launcher.theme.accent.flatMap(Theme.color) ?? .controlAccentColor
         footerLeft.stringValue = pendingUpdate.map { "Update to \($0) available  ·  ⌘U" }
+            ?? (welcoming ? "Welcome to Hop  ·  \(HotKeys.symbols(openCombo ?? "opt+space")) opens it anywhere" : nil)
             ?? (items[r].fill != nil ? "Tab completes  ·  ⌘1–9 quick open" : "⌘1–9 quick open")
     }
 }

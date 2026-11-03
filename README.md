@@ -45,8 +45,10 @@ open build/Hop.app
 Source builds are version `dev` and never update themselves.
 
 
-⌥Space opens it. ⌘Space works once Spotlight's shortcut is off (System Settings → Keyboard →
-Keyboard Shortcuts → Spotlight). Menu search, window switching, media keys and
+The first time it starts, Hop opens by itself with the few things worth setting up (⌘Space,
+Accessibility, Launch at Login); the list is gone once the panel closes. After that ⌥Space opens it.
+⌘Space works once Spotlight's shortcut is off (System Settings → Keyboard → Keyboard Shortcuts →
+Spotlight). Menu search, window switching, media keys and
 paste need Accessibility: run **Grant Accessibility Access** from the launcher. Dev builds are
 ad-hoc signed and get a new identity on every rebuild, so macOS asks again for those; releases keep theirs.
 

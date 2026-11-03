@@ -33,6 +33,7 @@ enum Debug {
             return
         }
         let q = args.firstIndex(of: "--query").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? ""
+        launcher.welcoming = args.contains("--welcome")   // the first-launch list, without a fresh install
         if args.contains("--show") {
             let focus = !args.contains("--snapshot")   // a snapshot must not take the keyboard
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { launcher.show(query: q, focus: focus) }

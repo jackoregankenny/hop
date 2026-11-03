@@ -76,6 +76,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         #if TESTING
         Debug.launched(launcher, settings: settings)   // --show, --query, --snapshot: dev builds only
         #endif
+
+        // First ever launch (no welcome yet, nothing ever opened, not a scripted run with flags): show the
+        // panel once, so Hop is more than a new icon in the menu bar.
+        let d = UserDefaults.standard
+        if !d.bool(forKey: "welcomed") && d.object(forKey: "frecency") == nil && CommandLine.arguments.count == 1 {
+            d.set(true, forKey: "welcomed")
+            launcher.welcoming = true
+            launcher.show()
+        }
     }
 
     @objc func open() { launcher.show() }
