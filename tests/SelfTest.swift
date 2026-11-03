@@ -57,6 +57,13 @@ enum SelfTest {
         check(ConfigCheck.run(text: #"{ "snapGap": 4 }"#, known: []).errors.isEmpty, "a retired key is only a warning")
         check(ConfigCheck.run(text: Config.sample, known: ["clipboard history", "lock screen"]) .warnings.isEmpty, "the example config is clean")
 
+        // Who else has ⌘Space, from com.apple.symbolichotkeys
+        let hk = { (on: Bool, mods: Int) in ["enabled": on, "value": ["parameters": [32, 49, mods]]] as [String: Any] }
+        check(Launcher.systemCmdSpace([:]) == "Spotlight", "Spotlight holds ⌘Space until its shortcut is changed")
+        check(Launcher.systemCmdSpace(["64": hk(false, 1 << 20)]) == nil, "Spotlight's shortcut off frees ⌘Space")
+        check(Launcher.systemCmdSpace(["64": hk(false, 1 << 20), "60": hk(true, 1 << 20)]) == "input sources", "input sources moved to ⌘Space")
+        check(Launcher.systemCmdSpace(["64": hk(false, 1 << 20), "60": hk(true, 1 << 18)]) == nil, "⌃Space is not ⌘Space")
+
         // Usage weighting
         let week = Usage.halfLife
         check(Usage.decayed(8, since: 0, now: week) == 4, "frecency halves each week")

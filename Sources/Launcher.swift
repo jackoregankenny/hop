@@ -640,11 +640,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     private func welcomeItems() -> [Item] {
         let steps = ["Use ⌘Space for Hop", "Grant Accessibility Access", "Launch Hop at Login", "Hop Settings"]
         var items = commands().map(\.item).filter { steps.contains($0.title) }
-        // Spotlight keeps ⌘Space until its shortcut (symbolic hotkey 64) is turned off.
-        let spotlight = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys")?["64"] as? [String: Any]
-        if spotlight?["enabled"] as? Bool ?? true, activeHotkeys.contains(where: { $0.combo == "cmd+space" }) {
-            items.append(Item(id: "cmd:Use ⌘Space for Hop", title: "Use ⌘Space for Hop", subtitle: "Turn off Spotlight's shortcut in Keyboard Shortcuts",
-                              icon: .symbol("command"), action: { SettingsPanes.open("com.apple.Keyboard-Settings.extension") }))
+        if config.hotkeys["cmd+space"]?.lowercased() == "show", let (why, fix) = cmdSpaceOwner() {
+            items.append(Item(id: "cmd:Use ⌘Space for Hop", title: "Use ⌘Space for Hop", subtitle: why, icon: .symbol("command"), action: fix))
         }
         return items.sorted { steps.firstIndex(of: $0.title)! < steps.firstIndex(of: $1.title)! }.map { item in
             var i = item
@@ -652,6 +649,31 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             i.action = { [weak self] in item.action(); self?.rebuild(keepSelection: false) }
             return i
         }
+    }
+
+    /// Whatever else may answer ⌘Space, and where to turn it off: a macOS shortcut, or another launcher that
+    /// is running (Carbon lets two apps register the same combo, so Hop cannot tell which one wins).
+    /// Hop points there rather than changing other apps' settings itself.
+    private func cmdSpaceOwner() -> (String, () -> Void)? {
+        let system = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys")
+        if let name = Launcher.systemCmdSpace(system as? [String: [String: Any]] ?? [:]) {
+            return ("macOS uses it for \(name): turn that off in Keyboard Shortcuts", { SettingsPanes.open("com.apple.Keyboard-Settings.extension") })
+        }
+        let launchers = ["com.raycast.macos", "com.runningwithcrayons.Alfred", "at.obdev.LaunchBar"]
+        guard let app = NSWorkspace.shared.runningApplications.first(where: { launchers.contains($0.bundleIdentifier ?? "") }),
+              let name = app.localizedName else { return nil }
+        return ("\(name) is running and may use it too: check \(name)'s hotkey", { app.activate() })
+    }
+
+    /// The macOS shortcut on ⌘Space, if one is on: Spotlight unless it was ever changed (no entry), or any
+    /// symbolic hotkey rebound to it (parameters: character, key code 49 for Space, ⌘ = 1 << 20).
+    static func systemCmdSpace(_ hotkeys: [String: [String: Any]]) -> String? {
+        let names = ["64": "Spotlight", "65": "Finder search", "60": "input sources", "61": "input sources"]
+        if hotkeys["64"] == nil { return "Spotlight" }
+        return hotkeys.sorted { $0.key < $1.key }.first { _, e in
+            let p = (e["value"] as? [String: Any])?["parameters"] as? [Int] ?? []
+            return e["enabled"] as? Bool == true && p.count == 3 && p[1] == 49 && p[2] == 1 << 20
+        }.map { names[$0.key] ?? "a keyboard shortcut" }
     }
 
     private func fileItem(_ path: String) -> Item {
