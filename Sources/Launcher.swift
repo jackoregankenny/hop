@@ -317,6 +317,9 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         table.tableColumns.first?.width = scroll.contentSize.width - 12
         table.sizeLastColumnToFit()
         panel.display()
+        // A borderless window's shadow is traced from its pixels and kept across resizes; left stale,
+        // the old rectangle shows as grey square corners around the rounded panel.
+        panel.invalidateShadow()
     }
 
     // MARK: config and hotkeys
@@ -613,11 +616,13 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         var extraMenus: [Item] = []
         var menuRow: Int?
         for (score, item) in ranked where score >= floor && seen.insert(item.id).inserted {
+            let full = out.count >= (menusExpanded ? 14 : 8)
             if item.id.hasPrefix("menu:") && !menusExpanded {
                 if menuRow != nil { extraMenus.append(item); continue }
+                if full { continue }   // no room for the row: the inserts below would land past the end
                 menuRow = out.count
             }
-            if out.count < (menusExpanded ? 14 : 8) { out.append(item) }
+            if !full { out.append(item) }
         }
         if let at = menuRow, extraMenus.count == 1 {
             out.insert(extraMenus[0], at: at + 1)   // folding one item into a row saves nothing
