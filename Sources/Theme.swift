@@ -31,6 +31,10 @@ struct Theme: Equatable {
                      "font": "mono", "fontSize": 14, "radius": 8],
     ]
 
+    /// The number keys and their range; values outside it are clamped.
+    static let limits: [String: ClosedRange<CGFloat>] = ["width": 480...1400, "rows": 3...14, "rowHeight": 32...80, "radius": 0...32,
+                                                          "fontSize": 11...22]
+
     static func from(_ value: Any?) -> Theme {
         var keys: [String: Any] = [:]
         if let name = value as? String { keys = presets[name.lowercased()] ?? [:] }
@@ -39,12 +43,14 @@ struct Theme: Equatable {
             keys.merge(d) { _, mine in mine }
         }
         var t = Theme()
-        func num(_ k: String) -> CGFloat? { (keys[k] as? NSNumber).map { CGFloat($0.doubleValue) } }
-        if let v = num("width") { t.width = min(max(v, 480), 1400) }
-        if let v = num("rows") { t.rows = Int(min(max(v, 3), 14)) }
-        if let v = num("rowHeight") { t.rowHeight = min(max(v, 32), 80) }
-        if let v = num("radius") { t.radius = min(max(v, 0), 32) }
-        if let v = num("fontSize") { t.fontSize = min(max(v, 11), 22) }
+        func num(_ k: String) -> CGFloat? {
+            (keys[k] as? NSNumber).map { min(max(CGFloat($0.doubleValue), limits[k]!.lowerBound), limits[k]!.upperBound) }
+        }
+        if let v = num("width") { t.width = v }
+        if let v = num("rows") { t.rows = Int(v) }
+        if let v = num("rowHeight") { t.rowHeight = v }
+        if let v = num("radius") { t.radius = v }
+        if let v = num("fontSize") { t.fontSize = v }
         if let v = keys["font"] as? String { t.font = v }
         if let v = keys["appearance"] as? String { t.appearance = v.lowercased() }
         if let v = keys["blur"] as? String { t.blur = v.lowercased() }
@@ -84,6 +90,7 @@ struct Theme: Equatable {
     }
 
     static let blurs: Set<String> = ["auto", "glass", "clear", "popover", "hud", "sidebar", "menu", "none"]
+    static let appearances: Set<String> = ["auto", "dark", "light"]
 
     /// The classic blur, also the fallback for glass before macOS 26.
     var material: NSVisualEffectView.Material? {

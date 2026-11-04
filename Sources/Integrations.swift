@@ -3,7 +3,6 @@ import ApplicationServices
 import Carbon.HIToolbox
 import CoreAudio
 import CoreServices
-import IOKit.ps
 
 // Things macOS already exposes, wired into the launcher. Each one is a small, self-contained source.
 
@@ -147,24 +146,6 @@ enum Clock {
         let f = DateFormatter()
         f.dateFormat = "EEE d MMM yyyy, HH:mm:ss zzz"
         return (f.string(from: d), "Unix timestamp → local time")
-    }
-}
-
-enum Battery {
-    static func status() -> (String, String)? {
-        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let list = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
-        for ps in list {
-            guard let d = IOPSGetPowerSourceDescription(blob, ps)?.takeUnretainedValue() as? [String: Any],
-                  let cap = d[kIOPSCurrentCapacityKey] as? Int else { continue }
-            let charging = d[kIOPSIsChargingKey] as? Bool ?? false
-            let plugged = (d[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-            let mins = (charging ? d[kIOPSTimeToFullChargeKey] : d[kIOPSTimeToEmptyKey]) as? Int ?? -1
-            var sub = charging ? "Charging" : plugged ? "Plugged in" : "On battery"
-            if mins > 0 { sub += " · \(mins / 60)h \(mins % 60)m \(charging ? "to full" : "left")" }
-            return ("\(cap)%", sub)
-        }
-        return nil
     }
 }
 
@@ -352,9 +333,8 @@ enum Tabs {
         let pids = list.compactMap { ($0[kCGWindowLayer as String] as? Int) == 0 ? $0[kCGWindowOwnerPID as String] as? pid_t : nil }
         guard let app = pids.lazy.compactMap({ pid in browsers.first { $0.processIdentifier == pid } }).first,
               let id = app.bundleIdentifier else { return nil }
-        let src = webkit.contains(id)
-            ? "tell application id \"\(id)\" to tell current tab of front window to return (name as text) & (character id 9) & (URL as text)"
-            : "tell application id \"\(id)\" to tell active tab of front window to return (title as text) & (character id 9) & (URL as text)"
+        let (tab, title) = webkit.contains(id) ? ("current tab", "name") : ("active tab", "title")
+        let src = "tell application id \"\(id)\" to tell \(tab) of front window to return (\(title) as text) & (character id 9) & (URL as text)"
         let f = System.osascript(src).trimmingCharacters(in: .newlines).split(separator: "\t", maxSplits: 1).map(String.init)
         guard f.count == 2, f[1].hasPrefix("http") else { return nil }
         return (f[0].isEmpty ? (URL(string: f[1])?.host ?? f[1]) : f[0], f[1])
@@ -376,9 +356,9 @@ enum Tabs {
     static func focus(_ t: Tab) {
         guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == t.browser }),
               let id = app.bundleIdentifier else { return }
-        let src = webkit.contains(id)
-            ? "tell application id \"\(id)\"\nset current tab of window \(t.window) to tab \(t.index) of window \(t.window)\nset index of window \(t.window) to 1\nactivate\nend tell"
-            : "tell application id \"\(id)\"\nset active tab index of window \(t.window) to \(t.index)\nset index of window \(t.window) to 1\nactivate\nend tell"
+        let select = webkit.contains(id) ? "set current tab of window \(t.window) to tab \(t.index) of window \(t.window)"
+                                         : "set active tab index of window \(t.window) to \(t.index)"
+        let src = "tell application id \"\(id)\"\n\(select)\nset index of window \(t.window) to 1\nactivate\nend tell"
         DispatchQueue.global().async { _ = System.osascript(src) }
     }
 }

@@ -8,7 +8,6 @@ enum Debug {
         if args.contains("--selftest") { SelfTest.run() }
         guard args.contains("--probe") else { return }
         print("accessibility trusted:", AXIsProcessTrusted())
-        print("windows on this Space:", WindowCore.windows().count, "· focused:", WindowCore.focused()?.appName ?? "none")
         if let front = NSWorkspace.shared.frontmostApplication {
             print("menu items in \(front.localizedName ?? "?"):",
                   Menus.read(pid: front.processIdentifier, appName: front.localizedName ?? "").count)
@@ -17,7 +16,6 @@ enum Debug {
         print("shortcuts:", Shortcuts.list().count)
         print("audio devices:", Audio.devices().map { "\($0.output ? "out" : "in"):\($0.name)\($0.current ? "*" : "")" }
             .joined(separator: ", "))
-        print("battery:", Battery.status().map { "\($0.0) \($0.1)" } ?? "none")
         exit(0)
     }
 
@@ -30,33 +28,31 @@ enum Debug {
         if let i = args.firstIndex(of: "--settings"), i + 2 < args.count, let tab = Int(args[i + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 settings.present(tab: tab, activate: false)   // never takes the keyboard
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    guard let v = settings.window?.contentView?.superview,
-                          let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { exit(1) }
-                    v.cacheDisplay(in: v.bounds, to: rep)
-                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[i + 2]))
-                    exit(0)
-                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { savePNG(settings.window?.contentView?.superview, args[i + 2]) }
             }
             return
         }
+        let q = args.firstIndex(of: "--query").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? ""
+        launcher.welcoming = args.contains("--welcome")   // the first-launch list, without a fresh install
         if args.contains("--show") {
-            let q = args.firstIndex(of: "--query").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? ""
             let focus = !args.contains("--snapshot")   // a snapshot must not take the keyboard
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { launcher.show(query: q, focus: focus) }
         }
         guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else { return }
-        let q = args.firstIndex(of: "--query").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? ""
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.3) { launcher.show(query: q, focus: false) }   // anything that arrived meanwhile
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             // The content, not the backdrop: Liquid Glass is drawn by the window server and cannot be
             // captured offscreen, so this shows layout and text, not the material.
-            let v = launcher.root
-            guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { exit(1) }
-            v.cacheDisplay(in: v.bounds, to: rep)
-            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[i + 1]))
-            exit(0)
+            savePNG(launcher.root, args[i + 1])
         }
+    }
+
+    /// Renders a view to a PNG at `path` and quits.
+    private static func savePNG(_ v: NSView?, _ path: String) -> Never {
+        guard let v, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { exit(1) }
+        v.cacheDisplay(in: v.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        exit(0)
     }
 
     /// --bench: where time goes on the main thread. Icons are timed through first draw, because

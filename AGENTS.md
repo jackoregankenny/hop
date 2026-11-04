@@ -8,27 +8,27 @@ check, done: Hop applies saved changes immediately, no restart.
 - Scripts: `~/.config/hop/scripts/` (executables, see below).
 - Validate: `/Applications/Hop.app/Contents/MacOS/Hop --check`. Prints `error:` / `warning:` lines
   and `ok: …`. Exit 0 = valid, 1 = errors. Fix every `error:` line; `warning:` lines are hotkeys
-  bound to names that do not exist yet (for example an app that is not installed).
+  bound to names that do not exist yet (for example an app that is not installed), theme numbers
+  outside their range, or keys Hop no longer reads (`snapGap`).
 - Inspect: `Hop --menu` prints the menu-bar menu, the feature switches and every registered hotkey.
-- Feature switches (Window Snapping, Clipboard History, Browser Tabs, Exchange Rates, File Search,
+- Feature switches (Clipboard History, Browser Tabs, Exchange Rates, File Search,
   Check for Updates) live in Settings › General, not in the file:
   `defaults write dev.hop.launcher feature.<name> -bool false` with name one of
-  windowSnapping, clipboardHistory, browserTabs, exchangeRates, fileSearch, automaticUpdates
-  (the key behind Check for Updates). Then run **Reload Hop Config** in the launcher, or save config.json.
+  clipboardHistory, browserTabs, exchangeRates, fileSearch, automaticUpdates
+  (the key behind Check for Updates). Hop picks it up the next time its panel opens.
 - Updates are never installed on their own: Hop only checks. Installing is the user's choice
   (**Update to X…** in the menu, or ⌘U in the panel).
 
 ## config.json
 
-Every key is optional. Unknown keys are errors.
+Every key is optional. Unknown keys are errors, except `snapGap`, which Hop no longer reads (a warning).
 
 ```json
 {
   "hotkeys": { "ctrl+opt+v": "Clipboard History", "ctrl+opt+s": "Slack", "cmd+space": "none" },
   "snippets": [ { "name": "Sign-off", "keyword": "sig", "text": "Thanks,\n{clipboard}" } ],
   "quicklinks": [ { "name": "npm", "key": "npm", "url": "https://www.npmjs.com/search?q={query}" } ],
-  "theme": { "preset": "midnight", "accent": "#7c8cff" },
-  "snapGap": 0
+  "theme": { "preset": "midnight", "accent": "#7c8cff" }
 }
 ```
 
@@ -38,14 +38,11 @@ Every key is optional. Unknown keys are errors.
   `left` `right` `up` `down` `return` `space` `tab` `escape` `delete` `minus` `equal` `comma`
   `period` `slash` `semicolon` `f1`–`f6`.
 - Action: `show` (open Hop), or the exact name of anything Hop lists: a command (`Clipboard History`,
-  `Toggle Dark Mode`, `Lock Screen`…), a window action (`Left Half`, `Top Left Quarter`,
-  `Center Third`, `Maximize`, `Restore Window`, `Next Display`…), an app (`Slack`), a snippet name,
-  a script title or a quicklink name. Case does not matter.
+  `Toggle Dark Mode`, `Lock Screen`…), an app (`Slack`), a snippet name, a script title or a
+  quicklink name (one with `{query}` opens Hop with its key typed). Case does not matter.
 - Your entries are added on top of the defaults. `"none"` turns a default off.
-- Defaults: `cmd+space` and `opt+space` open Hop; window snapping uses Rectangle's layout
-  (`ctrl+opt+left/right/up/down` halves, `ctrl+opt+u/i/j/k` quarters, `ctrl+opt+d/f/g` thirds,
-  `ctrl+opt+e/t` two thirds, `ctrl+opt+return` maximize, `ctrl+opt+c` center,
-  `ctrl+opt+delete` restore, `ctrl+opt+cmd+left/right` displays).
+- Defaults: `cmd+space` and `opt+space` open Hop. Window snapping lives in a separate app,
+  [Tiles](https://github.com/jackoregankenny/tiles).
 
 ### snippets: `[{ "name", "keyword"?, "text" }]`
 
@@ -69,10 +66,6 @@ A URL with `{query}` becomes a search: typing `key something` opens it with `som
 | background, accent | `#rgb`, `#rrggbb`, `#rrggbbaa` (background tints the glass or blur) |
 | font | system, rounded, mono, serif, or an installed font name |
 | fontSize 11–22, width 480–1400, rows 3–14, rowHeight 32–80, radius 0–32 | numbers |
-
-### snapGap
-
-Points of space around snapped windows. Number, default 0.
 
 ## Scripts: `~/.config/hop/scripts/`
 

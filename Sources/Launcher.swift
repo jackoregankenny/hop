@@ -83,12 +83,16 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     let clipboard = Clipboard()
     let files = Files()
 
-    let snapper = Snapper()
     let hotkeys = HotKeys()
     private(set) var config = Config()
     private var hotkeyLabels: [String: String] = [:]   // lowercased action -> "⌃⌥←"
     private(set) var activeHotkeys: [(combo: String, action: String)] = []
     var onOpenSettings: (() -> Void)?
+    /// After every applyConfig, for what lives outside the launcher (the update checks).
+    var onConfig: (() -> Void)?
+    private var features: [Bool] = []   // the switches applyConfig last saw
+    /// First launch: until the panel first closes, an empty query lists the few things worth setting up.
+    var welcoming = false
     /// A version waiting to be installed, shown quietly in the footer; ⌘U calls onUpdate.
     var pendingUpdate: String? { didSet { updateFooter() } }
     var onUpdate: (() -> Void)?
@@ -194,7 +198,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     func actionNames() -> [String] {
         var seen: Set<String> = ["show"], out = ["show"]
         let fleeting = ["win:", "tab:", "menu:", "audio:"]
-        for n in Snap.actionNames.sorted() + pool().filter({ e in !fleeting.contains { e.item.id.hasPrefix($0) } }).compactMap({ $0.names.first })
+        for n in pool().filter({ e in !fleeting.contains { e.item.id.hasPrefix($0) } }).compactMap({ $0.names.first })
         where seen.insert(n.lowercased()).inserted { out.append(n) }
         return out
     }
@@ -205,7 +209,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     /// Lowercased names a hotkey can run, for `hop --check`.
     func knownActions() -> Set<String> {
         Set(pool().compactMap { $0.names.first?.lowercased() })
-            .union(Snap.actionNames.map { $0.lowercased() }).union(["show", "clipboard history"])
+            .union(["show", "clipboard history"])
     }
 
     private func applyTheme() {
@@ -273,6 +277,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let vf = screen?.visibleFrame else { return }
+        // Switches flipped outside Hop (`defaults write`, see AGENTS.md) take effect on the next open.
+        if Feature.allCases.map(\.isOn) != features { applyConfig() }
         topEdge = vf.maxY - vf.height * 0.2
         loadSources()
         field.stringValue = query
@@ -284,6 +290,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     func hide() {
+        welcoming = false
         pending?.cancel()
         files.cancel()
         panel.orderOut(nil)
@@ -328,17 +335,18 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         config = Config.load()
         sourcesChanged()
         if config.theme != Launcher.theme { Launcher.theme = config.theme; applyTheme() }
-        snapper.gap = config.snapGap
+        features = Feature.allCases.map(\.isOn)
         clipboard.enabled = Feature.clipboardHistory.isOn
         hotkeys.removeAll()
         hotkeyLabels = [:]
         activeHotkeys = []
-        for (combo, action) in Config.active(config.hotkeys, snapping: Feature.windowSnapping.isOn).sorted(by: { $0.key < $1.key }) {
+        for (combo, action) in config.hotkeys.sorted(by: { $0.key < $1.key }) {
             guard hotkeys.register(combo, { [weak self] in self?.perform(action) }) else { continue }
             hotkeyLabels[action.lowercased(), default: HotKeys.symbols(combo)] = HotKeys.symbols(combo)
             activeHotkeys.append((combo, action))
         }
         scripts = Script.load()
+        onConfig?()
     }
 
     /// Runs a hotkey action: "show", or the title of any command, window action, script or quicklink.
@@ -358,35 +366,22 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         output = nil
         tabs = []
         tabsLoaded = false
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let devices = Audio.devices()   // CoreAudio can take ~100 ms the first time
-            DispatchQueue.main.async { self?.audio = devices; self?.sourcesChanged() }
-        }
+        System.background(Audio.devices) { [weak self] in self?.audio = $0; self?.sourcesChanged() }   // CoreAudio: ~100 ms cold
         scripts = Script.load()
         running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != getpid() }
-        let front = NSWorkspace.shared.frontmostApplication
-        let trusted = AXIsProcessTrusted()
         menus = []
         windows = []
-        if trusted, let front, front.processIdentifier != getpid() {
+        if AXIsProcessTrusted(), let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != getpid() {
             let pid = front.processIdentifier, name = front.localizedName ?? ""
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let m = Menus.read(pid: pid, appName: name)
-                let w = WindowList.read()
-                DispatchQueue.main.async {
-                    self?.menus = m
-                    self?.windows = w
-                    self?.sourcesChanged()
-                    if self?.query.isEmpty == false { self?.rebuild(keepSelection: true) }
-                }
+            System.background({ (Menus.read(pid: pid, appName: name), WindowList.read()) }) { [weak self] in
+                self?.menus = $0.0
+                self?.windows = $0.1
+                self?.arrived()
             }
         }
         if Date().timeIntervalSince(shortcutsLoaded) > 60 {
             shortcutsLoaded = Date()
-            DispatchQueue.global(qos: .utility).async {
-                let list = Shortcuts.list()
-                DispatchQueue.main.async { self.shortcuts = list; self.sourcesChanged() }
-            }
+            System.background(Shortcuts.list, qos: .utility) { self.shortcuts = $0; self.sourcesChanged() }
         }
     }
 
@@ -394,14 +389,13 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     private func loadTabsIfNeeded() {
         guard !tabsLoaded, Feature.browserTabs.isOn else { return }
         tabsLoaded = true
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let t = Tabs.read()
-            DispatchQueue.main.async {
-                self?.tabs = t
-                self?.sourcesChanged()
-                if self?.query.isEmpty == false { self?.rebuild(keepSelection: true) }
-            }
-        }
+        System.background(Tabs.read) { [weak self] in self?.tabs = $0; self?.arrived() }
+    }
+
+    /// A source finished loading after the panel opened: rank it in with what is already showing.
+    private func arrived() {
+        sourcesChanged()
+        if !query.isEmpty { rebuild(keepSelection: true) }
     }
 
     // MARK: input
@@ -533,14 +527,13 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     private func answer(_ value: String, _ label: String, _ icon: Item.Icon) -> Item {
-        let clipboard = self.clipboard
-        return Item(id: "answer", title: value, subtitle: "\(label) · ↵ copy · ⌘↵ paste", icon: icon,
-                    action: { clipboard.copy(value) }, alt: { Paste.paste(value, clipboard) })
+        Item(id: "answer", title: value, subtitle: "\(label) · ↵ copy · ⌘↵ paste", icon: icon,
+             action: { [clipboard] in clipboard.copy(value) }, alt: { [clipboard] in Paste.paste(value, clipboard) })
     }
 
     func compose(_ q: String) -> [Item] {
         if let o = output { return outputItems(o) }
-        if q.isEmpty { return [] }
+        if q.isEmpty { return welcoming ? welcomeItems() : [] }
         if isClipQuery(q) { return clipItems(q) }
         if let e = Emoji.query(q) { return emojiItems(e) }
         let l = q.lowercased()
@@ -575,9 +568,6 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         if let w = Define.word(q), let d = Define.lookup(w) {
             out.append(Item(id: "define", title: w, subtitle: d, icon: .symbol("character.book.closed"),
                             action: { Web.open("dict://\(Web.enc(w))") }, alt: { [clipboard] in clipboard.copy(d) }))
-        }
-        if ["battery", "batt", "power"].contains(where: { $0.hasPrefix(l) && l.count >= 3 }), let (pct, sub) = Battery.status() {
-            out.append(answer(pct, sub, .symbol("battery.75percent")))
         }
         if let url = Web.looksLikeURL(q) {
             out.append(Item(id: "url", title: "Open \(q)", subtitle: url, icon: .symbol("safari"), action: { Web.open(url) }))
@@ -645,6 +635,52 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         return out
     }
 
+    /// The hotkey to tell people about: ⌥Space works from the start, ⌘Space only once Spotlight lets go of it.
+    private var openCombo: String? {
+        let shows = activeHotkeys.filter { $0.action == "show" }.map(\.combo)
+        return shows.contains("opt+space") ? "opt+space" : shows.first
+    }
+
+    /// The setup steps that still apply, each runnable in place so the list stays open.
+    private func welcomeItems() -> [Item] {
+        let steps = ["Use ⌘Space for Hop", "Grant Accessibility Access", "Launch Hop at Login", "Hop Settings"]
+        var items = commands().map(\.item).filter { steps.contains($0.title) }
+        if config.hotkeys["cmd+space"]?.lowercased() == "show", let (why, fix) = cmdSpaceOwner() {
+            items.append(Item(id: "cmd:Use ⌘Space for Hop", title: "Use ⌘Space for Hop", subtitle: why, icon: .symbol("command"), action: fix))
+        }
+        return items.sorted { steps.firstIndex(of: $0.title)! < steps.firstIndex(of: $1.title)! }.map { item in
+            var i = item
+            i.keepOpen = true
+            i.action = { [weak self] in item.action(); self?.rebuild(keepSelection: false) }
+            return i
+        }
+    }
+
+    /// Whatever else may answer ⌘Space, and where to turn it off: a macOS shortcut, or another launcher that
+    /// is running (Carbon lets two apps register the same combo, so Hop cannot tell which one wins).
+    /// Hop points there rather than changing other apps' settings itself.
+    private func cmdSpaceOwner() -> (String, () -> Void)? {
+        let system = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys")
+        if let name = Launcher.systemCmdSpace(system as? [String: [String: Any]] ?? [:]) {
+            return ("macOS uses it for \(name): turn that off in Keyboard Shortcuts", { SettingsPanes.open("com.apple.Keyboard-Settings.extension") })
+        }
+        let launchers = ["com.raycast.macos", "com.runningwithcrayons.Alfred", "at.obdev.LaunchBar"]
+        guard let app = NSWorkspace.shared.runningApplications.first(where: { launchers.contains($0.bundleIdentifier ?? "") }),
+              let name = app.localizedName else { return nil }
+        return ("\(name) is running and may use it too: check \(name)'s hotkey", { app.activate() })
+    }
+
+    /// The macOS shortcut on ⌘Space, if one is on: Spotlight unless it was ever changed (no entry), or any
+    /// symbolic hotkey rebound to it (parameters: character, key code 49 for Space, ⌘ = 1 << 20).
+    static func systemCmdSpace(_ hotkeys: [String: [String: Any]]) -> String? {
+        let names = ["64": "Spotlight", "65": "Finder search", "60": "input sources", "61": "input sources"]
+        if hotkeys["64"] == nil { return "Spotlight" }
+        return hotkeys.sorted { $0.key < $1.key }.first { _, e in
+            let p = (e["value"] as? [String: Any])?["parameters"] as? [Int] ?? []
+            return e["enabled"] as? Bool == true && p.count == 3 && p[1] == 49 && p[2] == 1 << 20
+        }.map { names[$0.key] ?? "a keyboard shortcut" }
+    }
+
     private func fileItem(_ path: String) -> Item {
         let url = URL(fileURLWithPath: path)
         return Item(id: path, title: url.lastPathComponent,
@@ -678,8 +714,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     /// Hop's own housekeeping; ranked below everything you actually came to open.
-    private static let housekeeping: Set<String> = ["Hop Settings", "Edit Hop Config", "Reload Hop Config",
-        "Save Clipboard as Snippet", "Open Scripts Folder", "Reload Apps", "Quit Hop", "Grant Accessibility Access",
+    private static let housekeeping: Set<String> = ["Hop Settings", "Edit Hop Config",
+        "Save Clipboard as Snippet", "Open Scripts Folder", "Quit Hop", "Grant Accessibility Access",
         "Launch Hop at Login", "Don't Launch Hop at Login"]
 
     /// Everything matched by name, built once per panel open (or when a source changes) rather than
@@ -710,24 +746,19 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         for c in commands() {
             out.append(Entry(names: [c.title] + c.keywords, base: Launcher.housekeeping.contains(c.title) ? -90 : -20, item: c.item))
         }
-        for c in Feature.windowSnapping.isOn ? snapper.commands() : [] {
-            out.append(Entry(names: [c.title] + c.keywords, base: -25,
-                             item: Item(id: "wm:\(c.title)", title: c.title, subtitle: label("Window", c.title),
-                                        icon: .symbol(c.symbol), action: c.run)))
-        }
         for p in SettingsPanes.all {
             out.append(Entry(names: [p.name] + p.keywords, base: -15,
                              item: Item(id: "pane:\(p.id)", title: p.name, subtitle: "System Settings",
                                         icon: .file("/System/Applications/System Settings.app"), action: { SettingsPanes.open(p.id) })))
         }
-        let clipboard = self.clipboard
         for s in config.snippets {
             let preview = s.text.replacingOccurrences(of: "\n", with: " ⏎ ")
             out.append(Entry(names: [s.name] + (s.keyword.map { [$0] } ?? []), base: -5, aliasWeight: 1,
                              item: Item(id: "snippet:\(s.name)", title: s.name,
                                         subtitle: label("Snippet", s.name) + (s.keyword.map { " · \($0)" } ?? "") + " · " + preview,
                                         icon: .symbol("text.quote"),
-                                        action: { Paste.paste(s.expanded(), clipboard) }, alt: { clipboard.copy(s.expanded()) })))
+                                        action: { [clipboard] in Paste.paste(s.expanded(), clipboard) },
+                                        alt: { [clipboard] in clipboard.copy(s.expanded()) })))
         }
         for l in config.quicklinks {
             let hasQuery = l.url.contains("{query}")
@@ -735,7 +766,8 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
                              item: Item(id: "link:\(l.name)", title: l.name,
                                         subtitle: hasQuery ? "Bookmark · type \(l.key ?? l.name) <query>" : l.url,
                                         icon: .symbol("link"), fill: hasQuery ? "\(l.key ?? l.name) " : nil,
-                                        action: { Web.open(l.url.replacingOccurrences(of: "{query}", with: "")) })))
+                                        // A search waits for what to search for, from the list or a hotkey alike.
+                                        action: hasQuery ? { [weak self] in self?.show(query: "\(l.key ?? l.name) ") } : { Web.open(l.url) })))
         }
         for s in scripts {
             out.append(Entry(names: [s.title], base: -10, item: scriptItem(s, arg: nil)))
@@ -803,10 +835,9 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     private func emojiItems(_ q: String) -> [Item] {
-        let clipboard = self.clipboard
-        return Emoji.search(q).map { e, name in
+        Emoji.search(q).map { e, name in
             Item(id: "emoji:\(e)", title: name.capitalized, subtitle: "↵ paste · ⌘↵ copy", icon: .text(e),
-                 action: { Paste.paste(e, clipboard) }, alt: { clipboard.copy(e) })
+                 action: { [clipboard] in Paste.paste(e, clipboard) }, alt: { [clipboard] in clipboard.copy(e) })
         }
     }
 
@@ -825,21 +856,16 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             return [Item(id: "clip-empty", title: "Clipboard history is empty", subtitle: "Copy some text or an image and it shows up here",
                          icon: .symbol("doc.on.clipboard"), action: {})]
         }
-        let clipboard = self.clipboard
         let hint = AXIsProcessTrusted() ? "↵ paste · ⌘↵ copy" : "↵ copy"
         return list.prefix(50).enumerated().map { i, c in
-            switch c {
-            case .text(let s):
-                let first = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s
-                return Item(id: "clip:\(i)", title: first.trimmingCharacters(in: .whitespaces),
-                            subtitle: "\(s.count) characters · " + hint, icon: .symbol("doc.on.clipboard"),
-                            action: { Paste.paste(c, clipboard) }, alt: { clipboard.copy(c) })
-            case let .image(data, _, thumb, size):
-                let kb = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
-                return Item(id: "clip:\(i)", title: "Image \(Int(size.width))×\(Int(size.height))",
-                            subtitle: "\(kb) · " + hint, icon: .image(thumb),
-                            action: { Paste.paste(c, clipboard) }, alt: { clipboard.copy(c) })
+            let (title, sub, icon): (String, String, Item.Icon) = switch c {
+            case .text(let s): ((s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s).trimmingCharacters(in: .whitespaces),
+                                "\(s.count) characters", .symbol("doc.on.clipboard"))
+            case let .image(data, _, thumb, size): ("Image \(Int(size.width))×\(Int(size.height))",
+                                                    ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file), .image(thumb))
             }
+            return Item(id: "clip:\(i)", title: title, subtitle: "\(sub) · " + hint, icon: icon,
+                        action: { [clipboard] in Paste.paste(c, clipboard) }, alt: { [clipboard] in clipboard.copy(c) })
         }
     }
 
@@ -872,12 +898,11 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
     }
 
     private func outputItems(_ o: (title: String, lines: [String])) -> [Item] {
-        let clipboard = self.clipboard
         let all = o.lines.joined(separator: "\n")
         return o.lines.prefix(200).enumerated().map { i, line in
             Item(id: "out:\(i)", title: line, subtitle: i == 0 ? "\(o.title) · ↵ copy line · ⌘↵ copy all · esc back" : "",
                  icon: .symbol(i == 0 ? "terminal" : "text.alignleft"),
-                 action: { clipboard.copy(line) }, alt: { clipboard.copy(all) })
+                 action: { [clipboard] in clipboard.copy(line) }, alt: { [clipboard] in clipboard.copy(all) })
         }
     }
 
@@ -946,22 +971,15 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
             cmd("Save Clipboard as Snippet", ["snippet", "new snippet"], "text.badge.plus", "Adds it to config.json") {
                 [weak self] in if Snippet.saveClipboard() { self?.applyConfig() }
             },
-            cmd("Reload Hop Config", ["refresh", "reload"], "arrow.triangle.2.circlepath", "Hotkeys, quicklinks, scripts") {
-                [weak self] in self?.applyConfig()
-            },
-            cmd("Open Scripts Folder", ["plugins", "extensions", "script commands"], "terminal", Config.scriptsDir) {
-                try? FileManager.default.createDirectory(atPath: Config.scriptsDir, withIntermediateDirectories: true)
-                NSWorkspace.shared.open(URL(fileURLWithPath: Config.scriptsDir))
-            },
+            cmd("Open Scripts Folder", ["plugins", "extensions", "script commands"], "terminal", Config.scriptsDir) { Config.openScripts() },
             cmd(login ? "Don't Launch Hop at Login" : "Launch Hop at Login", ["startup", "login"], "power.circle") {
                 System.launchAtLogin = !login
             },
-            cmd("Reload Apps", ["reindex"], "arrow.triangle.2.circlepath", "Rescan /Applications") { [apps] in apps.refresh() },
             cmd("Quit Hop", ["exit"], "xmark.circle") { NSApp.terminate(nil) },
         ]
         if !AXIsProcessTrusted() {
             list.append(cmd("Grant Accessibility Access", ["permissions", "windows", "menus", "paste"], "hand.raised",
-                            "Needed for window management, menu search, window switching and paste") {
+                            "Needed for menu search, window switching and paste") {
                 AX.ensureTrusted()
                 SettingsPanes.openAccessibilityPrivacy()
             })
@@ -1042,6 +1060,7 @@ final class Launcher: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTa
         // A pending update takes the hint's place rather than a result row, so it never competes with search.
         footerLeft.textColor = pendingUpdate == nil ? .secondaryLabelColor : Launcher.theme.accent.flatMap(Theme.color) ?? .controlAccentColor
         footerLeft.stringValue = pendingUpdate.map { "Update to \($0) available  ·  ⌘U" }
+            ?? (welcoming ? "Welcome to Hop  ·  \(HotKeys.symbols(openCombo ?? "opt+space")) opens it anywhere" : nil)
             ?? (items[r].fill != nil ? "Tab completes  ·  ⌘1–9 quick open" : "⌘1–9 quick open")
     }
 }

@@ -19,11 +19,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var launcher: Launcher!
     var status: NSStatusItem!
     let updater = Updater(app: "Hop")
-    lazy var settings = SettingsWindow(launcher: launcher) { [weak self] in self?.syncUpdater() }
+    lazy var settings = SettingsWindow(launcher: launcher)
 
     func applicationDidFinishLaunching(_ n: Notification) {
         launcher = Launcher()
-        // Hotkeys come from ~/.config/hop/config.json on top of the defaults (⌥Space, ⌘Space, snapping).
+        launcher.onConfig = { [weak self] in self?.syncUpdater() }
+        // Hotkeys come from ~/.config/hop/config.json on top of the defaults (⌥Space, ⌘Space).
         // ⌘Space only fires once Spotlight's shortcut is turned off.
         launcher.applyConfig()
 
@@ -36,7 +37,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launcher.onUpdate = { [weak self] in self?.updater.check(install: true) }
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: launcher.panel,
                                                queue: .main) { [weak self] _ in self?.glint(atMostEvery: 300) }
-        syncUpdater()
         showUpdate()
         launcher.onOpenSettings = { [weak self] in self?.settings.present() }
 
@@ -58,13 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             func dump(_ m: NSMenu, _ indent: String) {
                 for i in m.items {
                     if i.isSeparatorItem { print(indent + "──"); continue }
-                    print(indent + (i.state == .on ? "✓ " : "  ") + i.title + (i.isEnabled ? "" : "  (info)"))
+                    print(indent + "  " + i.title + (i.isEnabled ? "" : "  (info)"))
                     if let sub = i.submenu { sub.delegate?.menuNeedsUpdate?(sub); dump(sub, indent + "    ") }
                 }
             }
             dump(menu, "")
             print("\nFeatures (Settings › General):")
-            for f in Feature.allCases { print((f.isOn ? "  ✓ " : "    ") + f.title) }
+            for f in Feature.allCases { print((f.isOn ? "  ✓ " : "    ") + f.text.title) }
             print("    Launch at Login: \(System.launchAtLogin ? "on" : "off")")
             print("\nHotkeys (\(launcher.activeHotkeys.count) registered):")
             for (combo, action) in launcher.activeHotkeys.sorted(by: { $0.action < $1.action }) {
@@ -76,6 +76,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         #if TESTING
         Debug.launched(launcher, settings: settings)   // --show, --query, --snapshot: dev builds only
         #endif
+
+        // First ever launch (no welcome yet, nothing ever opened, not a scripted run with flags): show the
+        // panel once, so Hop is more than a new icon in the menu bar.
+        let d = UserDefaults.standard
+        if !d.bool(forKey: "welcomed") && d.object(forKey: "frecency") == nil && CommandLine.arguments.count == 1 {
+            d.set(true, forKey: "welcomed")
+            launcher.welcoming = true
+            launcher.show()
+        }
     }
 
     @objc func open() { launcher.show() }
@@ -170,7 +179,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         snips.addItem(.separator())
         add(snips, "Save Clipboard as Snippet") { [weak self] in if Snippet.saveClipboard() { self?.launcher.applyConfig() } }
         add(snips, "Edit Snippets…") { [weak self] in self?.settings.present(tab: 3) }
-        submenu(menu, "Snippets (\(launcher.config.snippets.count))", snips)
+        let snipsItem = NSMenuItem(title: "Snippets (\(launcher.config.snippets.count))", action: nil, keyEquivalent: "")
+        snipsItem.submenu = snips
+        menu.addItem(snipsItem)
         add(menu, "Save Current Page as Bookmark") { [weak self] in
             if Tabs.saveFront() != nil { self?.launcher.applyConfig() } else { NSSound.beep() }
         }
@@ -183,21 +194,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add(menu, "Quit Hop") { NSApp.terminate(nil) }
     }
 
-    private func add(_ menu: NSMenu, _ title: String, on: Bool = false, enabled: Bool = true, tip: String? = nil, key: String = "",
+    private func add(_ menu: NSMenu, _ title: String, enabled: Bool = true, tip: String? = nil, key: String = "",
                      _ run: @escaping () -> Void) {
         let item = NSMenuItem(title: title, action: enabled ? #selector(menuAction(_:)) : nil, keyEquivalent: key)
         item.target = self
         item.tag = actions.count
-        item.state = on ? .on : .off
         item.isEnabled = enabled
         item.toolTip = tip
         actions.append(run)
-        menu.addItem(item)
-    }
-
-    private func submenu(_ menu: NSMenu, _ title: String, _ sub: NSMenu) {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.submenu = sub
         menu.addItem(item)
     }
 
